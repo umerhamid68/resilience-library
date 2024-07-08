@@ -1,3 +1,4 @@
+///////////////////////////////////////////////using db correctly
 import { RateLimitingStrategy } from './RateLimitingStrategy';
 import { LoggingAdapter } from '../adapters/LoggingAdapter';
 import { TelemetryAdapter } from '../adapters/TelemetryAdapter';
@@ -17,15 +18,27 @@ export class RateLimiter {
         this.telemetryAdapter = telemetryAdapter;
     }
 
-    hit(clientId: string): boolean {
-        return false;
+    async hit(clientId: string): Promise<boolean> {
+        const result = await this.strategy.hit(clientId);
+        const event = result ? 'request_allowed' : 'rate_limit_exceeded';
+        this.loggingAdapter.log(`${event} for client: ${clientId}`);
+        this.telemetryAdapter.collect({ event, clientId });
+        return result;
     }
 
-    check(clientId: string): boolean {
-        return false;
+    async check(clientId: string): Promise<boolean> {
+        const result = await this.strategy.check(clientId);
+        this.loggingAdapter.log(`Check request for client: ${clientId}, allowed: ${result}`);
+        this.telemetryAdapter.collect({ event: 'check_request', clientId, allowed: result });
+        return result;
     }
 
-    access(clientId: string): boolean {
+    async access(clientId: string): Promise<boolean> {
+        const isAllowed = await this.check(clientId);
+        if (isAllowed) {
+            return await this.hit(clientId);
+        }
         return false;
     }
 }
+

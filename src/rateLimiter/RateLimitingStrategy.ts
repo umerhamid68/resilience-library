@@ -1,4 +1,5 @@
 export interface RateLimitingStrategy {
-    hit(clientId: string): boolean;
-    check(clientId: string): boolean;
+    hit(clientId: string): Promise<boolean>;
+    check(clientId: string): Promise<boolean>;
 }
+

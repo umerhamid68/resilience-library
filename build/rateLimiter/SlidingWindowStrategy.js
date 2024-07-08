@@ -1,17 +1,18 @@
 "use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.SlidingWindowStrategy = void 0;
-var SlidingWindowStrategy;
-(function (SlidingWindowStrategy_1) {
-    class SlidingWindowStrategy {
-        constructor(maxRequests, windowSize, segmentSize, dbPath) {
+/*import { RateLimitingStrategy } from './RateLimitingStrategy';
+
+export module SlidingWindowStrategy{
+    export class SlidingWindowStrategy implements RateLimitingStrategy {
+        constructor(maxRequests: number, windowSize: number, segmentSize: number, dbPath: string) {
         }
-        hit(clientId) {
+    
+        hit(clientId: string): boolean {
             return false;
         }
-        check(clientId) {
+    
+        check(clientId: string): boolean {
             return false;
         }
     }
-    SlidingWindowStrategy_1.SlidingWindowStrategy = SlidingWindowStrategy;
-})(SlidingWindowStrategy || (exports.SlidingWindowStrategy = SlidingWindowStrategy = {}));
+    
+}*/

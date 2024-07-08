@@ -1,4 +1,4 @@
-import { RateLimitingStrategy } from './RateLimitingStrategy';
+/*import { RateLimitingStrategy } from './RateLimitingStrategy';
 
 export module SlidingWindowStrategy{
     export class SlidingWindowStrategy implements RateLimitingStrategy {
@@ -14,4 +14,4 @@ export module SlidingWindowStrategy{
         }
     }
     
-}
+}*/

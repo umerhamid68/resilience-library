@@ -1,4 +1,52 @@
 "use strict";
+/*import { RateLimitingStrategy } from './RateLimitingStrategy';
+import { LoggingAdapter } from '../adapters/LoggingAdapter';
+import { TelemetryAdapter } from '../adapters/TelemetryAdapter';
+
+export class RateLimiter {
+    private strategy: RateLimitingStrategy;
+    private loggingAdapter: LoggingAdapter;
+    private telemetryAdapter: TelemetryAdapter;
+
+    constructor(
+        strategy: RateLimitingStrategy,
+        loggingAdapter: LoggingAdapter,
+        telemetryAdapter: TelemetryAdapter
+    ) {
+        this.strategy = strategy;
+        this.loggingAdapter = loggingAdapter;
+        this.telemetryAdapter = telemetryAdapter;
+    }
+
+    hit(clientId: string): boolean {
+        const result = this.strategy.hit(clientId);
+        const event = result ? 'request_allowed' : 'rate_limit_exceeded';
+        this.loggingAdapter.log(`${event} for client: ${clientId}`);
+        this.telemetryAdapter.collect({ event, clientId });
+        return result;
+    }
+
+    check(clientId: string): boolean {
+        const result = this.strategy.check(clientId);
+        this.loggingAdapter.log(`Check request for client: ${clientId}, allowed: ${result}`);
+        this.telemetryAdapter.collect({ event: 'check_request', clientId, allowed: result });
+        return result;
+    }
+
+    access(clientId: string): boolean {
+        return this.check(clientId) && this.hit(clientId);
+    }
+}
+*/
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RateLimiter = void 0;
 class RateLimiter {
@@ -8,13 +56,30 @@ class RateLimiter {
         this.telemetryAdapter = telemetryAdapter;
     }
     hit(clientId) {
-        return false;
+        return __awaiter(this, void 0, void 0, function* () {
+            const result = yield this.strategy.hit(clientId);
+            const event = result ? 'request_allowed' : 'rate_limit_exceeded';
+            this.loggingAdapter.log(`${event} for client: ${clientId}`);
+            this.telemetryAdapter.collect({ event, clientId });
+            return result;
+        });
     }
     check(clientId) {
-        return false;
+        return __awaiter(this, void 0, void 0, function* () {
+            const result = yield this.strategy.check(clientId);
+            this.loggingAdapter.log(`Check request for client: ${clientId}, allowed: ${result}`);
+            this.telemetryAdapter.collect({ event: 'check_request', clientId, allowed: result });
+            return result;
+        });
     }
     access(clientId) {
-        return false;
+        return __awaiter(this, void 0, void 0, function* () {
+            const isAllowed = yield this.check(clientId);
+            if (isAllowed) {
+                return yield this.hit(clientId);
+            }
+            return false;
+        });
     }
 }
 exports.RateLimiter = RateLimiter;
