@@ -1,43 +1,4 @@
 "use strict";
-/*import { RateLimitingStrategy } from './RateLimitingStrategy';
-import { LoggingAdapter } from '../adapters/LoggingAdapter';
-import { TelemetryAdapter } from '../adapters/TelemetryAdapter';
-
-export class RateLimiter {
-    private strategy: RateLimitingStrategy;
-    private loggingAdapter: LoggingAdapter;
-    private telemetryAdapter: TelemetryAdapter;
-
-    constructor(
-        strategy: RateLimitingStrategy,
-        loggingAdapter: LoggingAdapter,
-        telemetryAdapter: TelemetryAdapter
-    ) {
-        this.strategy = strategy;
-        this.loggingAdapter = loggingAdapter;
-        this.telemetryAdapter = telemetryAdapter;
-    }
-
-    hit(clientId: string): boolean {
-        const result = this.strategy.hit(clientId);
-        const event = result ? 'request_allowed' : 'rate_limit_exceeded';
-        this.loggingAdapter.log(`${event} for client: ${clientId}`);
-        this.telemetryAdapter.collect({ event, clientId });
-        return result;
-    }
-
-    check(clientId: string): boolean {
-        const result = this.strategy.check(clientId);
-        this.loggingAdapter.log(`Check request for client: ${clientId}, allowed: ${result}`);
-        this.telemetryAdapter.collect({ event: 'check_request', clientId, allowed: result });
-        return result;
-    }
-
-    access(clientId: string): boolean {
-        return this.check(clientId) && this.hit(clientId);
-    }
-}
-*/
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {

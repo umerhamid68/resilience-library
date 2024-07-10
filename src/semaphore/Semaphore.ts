@@ -1,3 +1,4 @@
+/////////////////////////////////////////new semaphore implementation
 import rocksdb from 'rocksdb';
 import { LoggingAdapter } from '../adapters/LoggingAdapter';
 import { TelemetryAdapter } from '../adapters/TelemetryAdapter';
@@ -19,10 +20,25 @@ export class Semaphore {
         this.dbReady = new Promise((resolve, reject) => {
             this.db.open({ create_if_missing: true }, (err) => {
                 if (err) {
-                    console.error('Failed to open the database:', err);
+                    console.error('failed to open database:', err);
                     reject(err);
                 } else {
-                    console.log('Database opened successfully.');
+                    console.log('database opened.');
+                    resolve();
+                }
+            });
+        });
+    }
+
+    async close(): Promise<void> {
+        await this.dbReady;
+        return new Promise<void>((resolve, reject) => {
+            this.db.close((err) => {
+                if (err) {
+                    console.error('failed to close database:', err);
+                    reject(err);
+                } else {
+                    console.log('database closed.');
                     resolve();
                 }
             });
@@ -35,7 +51,7 @@ export class Semaphore {
             this.db.get(this.key, (err, value) => {
                 if (err) {
                     if (err.message.includes('NotFound')) {
-                        console.log(`Key not found in DB, initializing new resource count.`);
+                        console.log(`key not found in DB. starting new resource count.`);
                         resolve(0);
                     } else {
                         reject(err);
@@ -44,13 +60,13 @@ export class Semaphore {
                     try {
                         const count = Number(value.toString());
                         if (isNaN(count)) {
-                            throw new Error('Invalid data format');
+                            throw new Error('invalid data format');
                         }
-                        console.log(`Retrieved resource count from DB - Key: ${this.key}, Count: ${count}`);
+                        console.log(`--gotten resource count from DB:: Key: ${this.key}, Count: ${count}`);
                         resolve(count);
                     } catch (error) {
-                        console.error(`Error parsing data: ${value.toString()}`);
-                        reject(new Error('Invalid data format'));
+                        console.error(`error parsing data: ${value.toString()}`);
+                        reject(new Error('invalid data format'));
                     }
                 }
             });
@@ -64,7 +80,7 @@ export class Semaphore {
                 if (err) {
                     reject(err);
                 } else {
-                    console.log(`Updated resource count in DB - Key: ${this.key}, Count: ${count}`);
+                    console.log(`--updated resource count in DB:: Key: ${this.key}, Count: ${count}`);
                     resolve();
                 }
             });
@@ -75,14 +91,14 @@ export class Semaphore {
         await this.dbReady;
         const currentCount = await this.getResourceCount();
         if (currentCount >= this.maxConcurrent) {
-            console.log(`Resource limit reached. Cannot acquire more.`);
+            console.log(`resource limit reached. cannot get more.`);
             return false;
         }
 
         await this.updateResourceCount(currentCount + 1);
-        this.loggingAdapter.log(`Resource acquired. Current count: ${currentCount + 1}`);
-        console.log(`Resource acquired. Current count: ${currentCount + 1}`);
-        //this.telemetryAdapter.collect({ event: 'resource_acquired', count: currentCount + 1 });
+        this.loggingAdapter.log(`resource acquired. Current count: ${currentCount + 1}`);
+        console.log(`resource acquired. Current count: ${currentCount + 1}`);
+        this.telemetryAdapter.collect({ event: 'resource_acquired', count: currentCount + 1 });
         return true;
     }
 
@@ -91,11 +107,11 @@ export class Semaphore {
         const currentCount = await this.getResourceCount();
         if (currentCount > 0) {
             await this.updateResourceCount(currentCount - 1);
-            this.loggingAdapter.log(`Resource released. Current count: ${currentCount - 1}`);
-            console.log(`Resource released. Current count: ${currentCount - 1}`);
+            this.loggingAdapter.log(`resource released. Current count: ${currentCount - 1}`);
+            console.log(`resource released. Current count: ${currentCount - 1}`);
             //this.telemetryAdapter.collect({ event: 'resource_released', count: currentCount - 1 });
         } else {
-            console.log(`No resources to release.`);
+            console.log(`no resources to release.`);
         }
     }
 }

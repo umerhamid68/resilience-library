@@ -18,9 +18,10 @@ const telemetryAdapter = new TelemetryAdapter_1.TelemetryAdapter();
 function testTokenBucketRateLimiter() {
     return __awaiter(this, void 0, void 0, function* () {
         console.log('Starting Token Bucket Rate Limiter Test...');
-        const rateLimiter = new TokenBucketStrategy_1.TokenBucketStrategy.TokenBucketStrategy(10, // max
+        const rateLimiter = new TokenBucketStrategy_1.TokenBucketStrategy.TokenBucketStrategy(10, //max
         1, //per second
-        './tokenBucketDB', 'api/endpoint');
+        './tokenBucketDB', 'api/endpoint', 10, //1ms delay catering
+        loggingAdapter, telemetryAdapter);
         for (let i = 0; i < 12; i++) {
             try {
                 const allowed = yield rateLimiter.hit('testClient');
@@ -38,7 +39,7 @@ function testFixedWindowRateLimiter() {
     return __awaiter(this, void 0, void 0, function* () {
         console.log('Starting Fixed Window Rate Limiter Test...');
         const rateLimiter = new FixedWindowCounter_1.FixedWindowCounterStrategy.FixedWindowCounterStrategy(5, //max
-        60000, //window size 
+        60000, //1 min
         './fixedWindowDB', 'api/endpoint');
         for (let i = 0; i < 7; i++) {
             try {

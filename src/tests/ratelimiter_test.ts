@@ -10,10 +10,13 @@ async function testTokenBucketRateLimiter() {
     console.log('Starting Token Bucket Rate Limiter Test...');
 
     const rateLimiter = new TokenBucketStrategy.TokenBucketStrategy(
-        10, // max
-        1,  //per second
+        10,//max
+        1,//per second
         './tokenBucketDB',
-        'api/endpoint'
+        'api/endpoint',
+        10,//1ms delay catering
+        loggingAdapter,
+        telemetryAdapter
     );
 
     for (let i = 0; i < 12; i++) {
@@ -33,8 +36,8 @@ async function testFixedWindowRateLimiter() {
     console.log('Starting Fixed Window Rate Limiter Test...');
 
     const rateLimiter = new FixedWindowCounterStrategy.FixedWindowCounterStrategy(
-        5,    //max
-        60000,//window size 
+        5,//max
+        60000,//1 min
         './fixedWindowDB',
         'api/endpoint'
     );
