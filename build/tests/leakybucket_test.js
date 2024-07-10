@@ -15,8 +15,8 @@ const TelemetryAdapter_1 = require("../adapters/TelemetryAdapter");
 function runLeakyBucketTest() {
     return __awaiter(this, void 0, void 0, function* () {
         console.log('Starting Leaky Bucket Rate Limiter Test...');
-        const loggingAdapter = new LoggingAdapter_1.LoggingAdapter();
-        const telemetryAdapter = new TelemetryAdapter_1.TelemetryAdapter();
+        const loggingAdapter = new LoggingAdapter_1.DefaultLoggingAdapter();
+        const telemetryAdapter = new TelemetryAdapter_1.DefaultTelemetryAdapter();
         const dbPath = './leakyBucketDB';
         const key = 'api/endpoint7';
         const leakyBucket = new LeakyBucketStrategy_1.LeakyBucketStrategy.LeakyBucketStrategy(10, //maxRequests

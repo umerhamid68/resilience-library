@@ -1,8 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TelemetryAdapter = void 0;
-class TelemetryAdapter {
+exports.DefaultTelemetryAdapter = void 0;
+class DefaultTelemetryAdapter {
     collect(data) {
+        console.log('Telemetry data collected:', JSON.stringify(data));
     }
 }
-exports.TelemetryAdapter = TelemetryAdapter;
+exports.DefaultTelemetryAdapter = DefaultTelemetryAdapter;

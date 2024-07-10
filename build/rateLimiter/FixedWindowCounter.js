@@ -26,7 +26,7 @@ export module FixedWindowCounterStrategy {
                         console.error('Failed to open the database:', err);
                         reject(err);
                     } else {
-                        console.log('Database opened successfully.');
+                        this.loggingAdapter.log('Database opened successfully.');
                         resolve();
                     }
                 });
@@ -42,7 +42,7 @@ export module FixedWindowCounterStrategy {
                     this.db.get(this.key, (err, value) => {
                         if (err) {
                             if (err.message.includes('NotFound')) {
-                                console.log(`Key not found in DB, initializing new window state.`);
+                                this.loggingAdapter.log(`Key not found in DB, initializing new window state.`);
                                 resolve({ startTime: Date.now(), requestCount: 0 });
                             } else {
                                 reject(err);
@@ -55,7 +55,7 @@ export module FixedWindowCounterStrategy {
                                 if (isNaN(startTime) || isNaN(requestCount)) {
                                     throw new Error('Invalid data format');
                                 }
-                                console.log(`Retrieved state from DB - Key: ${this.key}, StartTime: ${startTime}, RequestCount: ${requestCount}`);
+                                this.loggingAdapter.log(`Retrieved state from DB - Key: ${this.key}, StartTime: ${startTime}, RequestCount: ${requestCount}`);
                                 resolve({ startTime, requestCount });
                             } catch (error) {
                                 console.error(`Error parsing data: ${value.toString()}`);
@@ -79,7 +79,7 @@ export module FixedWindowCounterStrategy {
                         if (err) {
                             reject(err);
                         } else {
-                            console.log(`Updated state in DB - Key: ${this.key}, Data: ${data}`);
+                            this.loggingAdapter.log(`Updated state in DB - Key: ${this.key}, Data: ${data}`);
                             resolve();
                         }
                     });
@@ -96,17 +96,17 @@ export module FixedWindowCounterStrategy {
 
             if (currentTimeMillis - startTime >= this.windowSizeInMillis) {
                 await this.updateWindowState(currentTimeMillis, 1);
-                console.log(`New window started for client ${clientId}.`);
-                //console.log(`Current request count: ${requestCount}`);
+                this.loggingAdapter.log(`New window started for client ${clientId}.`);
+                //this.loggingAdapter.log(`Current request count: ${requestCount}`);
                 return true;
             }
 
             if (requestCount >= this.maxRequests) {
-                console.log(`Rate limit exceeded for client ${clientId}.`);
+                this.loggingAdapter.log(`Rate limit exceeded for client ${clientId}.`);
                 return false;
             }
             await this.updateWindowState(startTime, requestCount + 1);
-            console.log(`Request allowed for client ${clientId}. Current request count: ${requestCount + 1}`);
+            this.loggingAdapter.log(`Request allowed for client ${clientId}. Current request count: ${requestCount + 1}`);
             return true;
         }
 
@@ -116,15 +116,15 @@ export module FixedWindowCounterStrategy {
             const { startTime, requestCount } = await this.getWindowState();
 
             if (currentTimeMillis - startTime >= this.windowSizeInMillis) {
-                console.log(`New window would start for client ${clientId}. Request would be allowed.`);
+                this.loggingAdapter.log(`New window would start for client ${clientId}. Request would be allowed.`);
                 return true;
             }
 
             if (requestCount < this.maxRequests) {
-                console.log(`Request would be allowed for client ${clientId}. Current request count: ${requestCount}`);
+                this.loggingAdapter.log(`Request would be allowed for client ${clientId}. Current request count: ${requestCount}`);
                 return true;
             }
-            console.log(`Request would be denied for client ${clientId}.`);
+            this.loggingAdapter.log(`Request would be denied for client ${clientId}.`);
             return false;
         }
     }
@@ -149,20 +149,23 @@ const async_mutex_1 = require("async-mutex");
 var FixedWindowCounterStrategy;
 (function (FixedWindowCounterStrategy_1) {
     class FixedWindowCounterStrategy {
-        constructor(maxRequests, windowSizeInMillis, dbPath, key) {
+        constructor(maxRequests, windowSizeInMillis, dbPath, key, loggingAdapter, telemetryAdapter) {
             this.maxRequests = maxRequests;
             this.windowSizeInMillis = windowSizeInMillis;
             this.key = key;
             this.db = (0, rocksdb_1.default)(dbPath);
             this.mutex = new async_mutex_1.Mutex();
+            this.loggingAdapter = loggingAdapter;
+            this.telemetryAdapter = telemetryAdapter;
             this.dbReady = new Promise((resolve, reject) => {
                 this.db.open({ create_if_missing: true }, (err) => {
                     if (err) {
+                        this.loggingAdapter.log(`failed to opendatabase: ${err}`);
                         console.error('failed to open database:', err);
                         reject(err);
                     }
                     else {
-                        console.log('database opened.');
+                        this.loggingAdapter.log('database opened.');
                         resolve();
                     }
                 });
@@ -176,7 +179,7 @@ var FixedWindowCounterStrategy;
                         this.db.get(this.key, (err, value) => {
                             if (err) {
                                 if (err.message.includes('NotFound')) {
-                                    console.log(`key not found in DB. making new window state.`);
+                                    this.loggingAdapter.log(`key not found in DB. making new window state.`);
                                     resolve({ startTime: Date.now(), requestCount: 0 });
                                 }
                                 else {
@@ -191,10 +194,11 @@ var FixedWindowCounterStrategy;
                                     if (isNaN(startTime) || isNaN(requestCount)) {
                                         throw new Error('invalid data format');
                                     }
-                                    console.log(`-- gotton state from DB - Key: ${this.key}, StartTime: ${startTime}, RequestCount: ${requestCount}`);
+                                    this.loggingAdapter.log(`-- gotton state from DB - Key: ${this.key}, StartTime: ${startTime}, RequestCount: ${requestCount}`);
                                     resolve({ startTime, requestCount });
                                 }
                                 catch (error) {
+                                    this.loggingAdapter.log(`error parsing data: ${value.toString()}`);
                                     console.error(`error parsing data: ${value.toString()}`);
                                     reject(new Error('invalid data format'));
                                 }
@@ -215,7 +219,7 @@ var FixedWindowCounterStrategy;
                                 reject(err);
                             }
                             else {
-                                console.log(`-- updated state in DB - Key: ${this.key}, Data: ${data}`);
+                                this.loggingAdapter.log(`-- updated state in DB - Key: ${this.key}, Data: ${data}`);
                                 resolve();
                             }
                         });
@@ -230,15 +234,15 @@ var FixedWindowCounterStrategy;
                 const { startTime, requestCount } = yield this.getWindowState();
                 if (currentTimeMillis - startTime >= this.windowSizeInMillis) {
                     yield this.updateWindowState(currentTimeMillis, 1);
-                    console.log(`New window started for client ${clientId}.`);
+                    this.loggingAdapter.log(`New window started for client ${clientId}.`);
                     return true;
                 }
                 if (requestCount >= this.maxRequests) {
-                    console.log(`rate limit exceeded for client ${clientId}.`);
+                    this.loggingAdapter.log(`rate limit exceeded for client ${clientId}.`);
                     return false;
                 }
                 yield this.updateWindowState(startTime, requestCount + 1);
-                console.log(`request allowed for client ${clientId}. Current request count: ${requestCount + 1}`);
+                this.loggingAdapter.log(`request allowed for client ${clientId}. Current request count: ${requestCount + 1}`);
                 return true;
             });
         }
@@ -248,14 +252,14 @@ var FixedWindowCounterStrategy;
                 const currentTimeMillis = Date.now();
                 const { startTime, requestCount } = yield this.getWindowState();
                 if (currentTimeMillis - startTime >= this.windowSizeInMillis) {
-                    console.log(`new window would start for client ${clientId}.Request would be allowed.`);
+                    this.loggingAdapter.log(`new window would start for client ${clientId}.Request would be allowed.`);
                     return true;
                 }
                 if (requestCount < this.maxRequests) {
-                    console.log(`Request would be allowed for client ${clientId}. Current request count: ${requestCount}`);
+                    this.loggingAdapter.log(`Request would be allowed for client ${clientId}. Current request count: ${requestCount}`);
                     return true;
                 }
-                console.log(`Request would be denied for client ${clientId}.`);
+                this.loggingAdapter.log(`Request would be denied for client ${clientId}.`);
                 return false;
             });
         }

@@ -28,8 +28,10 @@ class ClientSDK {
             return yield this.rateLimiter.check(clientId);
         });
     }
-    callCircuitBreaker(func, ...args) {
-        return this.circuitBreaker.call(func, ...args);
+    callCircuitBreaker(func) {
+        return __awaiter(this, void 0, void 0, function* () {
+            return yield this.circuitBreaker.execute(func);
+        });
     }
     acquireSemaphore() {
         return __awaiter(this, void 0, void 0, function* () {

@@ -1,8 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.LoggingAdapter = void 0;
-class LoggingAdapter {
+exports.DefaultLoggingAdapter = void 0;
+class DefaultLoggingAdapter {
     log(message) {
+        console.log(`Log: ${message}`);
     }
 }
-exports.LoggingAdapter = LoggingAdapter;
+exports.DefaultLoggingAdapter = DefaultLoggingAdapter;

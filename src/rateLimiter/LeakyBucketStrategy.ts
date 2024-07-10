@@ -13,6 +13,8 @@ export module LeakyBucketStrategy {
         private resetThresholdInMillis: number;
         private dbReady: Promise<void>;
         private mutex: Mutex;
+        private loggingAdapter: LoggingAdapter;
+        private telemetryAdapter: TelemetryAdapter;
 
         constructor(maxRequests: number, dbPath: string, key: string, resetThresholdInMillis: number = 3600000, loggingAdapter: LoggingAdapter, telemetryAdapter: TelemetryAdapter) {
             this.maxRequests = maxRequests;
@@ -20,13 +22,16 @@ export module LeakyBucketStrategy {
             this.resetThresholdInMillis = resetThresholdInMillis;
             this.db = rocksdb(dbPath);
             this.mutex = new Mutex();
+            this.loggingAdapter = loggingAdapter;
+            this.telemetryAdapter = telemetryAdapter;
             this.dbReady = new Promise((resolve, reject) => {
                 this.db.open({ create_if_missing: true }, (err) => {
                     if (err) {
+                        this.loggingAdapter.log(`failed to opendatabase: ${err}`)
                         console.error('failed to open database:', err);
                         reject(err);
                     } else {
-                        console.log('database opened.');
+                        this.loggingAdapter.log('database opened.');
                         resolve();
                     }
                 });
@@ -40,7 +45,7 @@ export module LeakyBucketStrategy {
                     this.db.get(this.key, (err, value) => {
                         if (err) {
                             if (err.message.includes('NotFound')) {
-                                console.log(`Key not found in DB. Making new queue state.`);
+                                this.loggingAdapter.log(`Key not found in DB. Making new queue state.`);
                                 resolve({ queue: [], lastProcessed: Date.now() });
                             } else {
                                 reject(err);
@@ -53,9 +58,10 @@ export module LeakyBucketStrategy {
                                 if (isNaN(lastProcessed)) {
                                     throw new Error('invalid data format');
                                 }
-                                console.log(`--gotten state from DB - Key: ${this.key}, Queue: ${queue}, Last Processed: ${lastProcessed}`);
+                                this.loggingAdapter.log(`--gotten state from DB - Key: ${this.key}, Queue: ${queue}, Last Processed: ${lastProcessed}`);
                                 resolve({ queue, lastProcessed });
                             } catch (error) {
+                                this.loggingAdapter.log(`error parsing data: ${value.toString()}`);
                                 console.error(`error parsing data: ${value.toString()}`);
                                 reject(new Error('Invalid data format'));
                             }
@@ -74,7 +80,7 @@ export module LeakyBucketStrategy {
                         if (err) {
                             reject(err);
                         } else {
-                            console.log(`--updated state in DB - Key: ${this.key}, Data: ${data}`);
+                            this.loggingAdapter.log(`--updated state in DB - Key: ${this.key}, Data: ${data}`);
                             resolve();
                         }
                     });
@@ -88,9 +94,9 @@ export module LeakyBucketStrategy {
             const elapsed = now - lastProcessed;
 
             if (elapsed > this.resetThresholdInMillis) {
-                console.log(`elapsed time ${elapsed}ms exceeds threshold. resetting queue.`);
+                this.loggingAdapter.log(`elapsed time ${elapsed}ms exceeds threshold. resetting queue.`);
                 await this.updateQueueState([], now);
-                console.log(`queue reset due to elapsed time. New lastprocessed time: ${now}`);
+                this.loggingAdapter.log(`queue reset due to elapsed time. New lastprocessed time: ${now}`);
             }
         }
 
@@ -105,10 +111,10 @@ export module LeakyBucketStrategy {
             if (queue.length < this.maxRequests) {
                 queue.push(clientId);
                 await this.updateQueueState(queue, Date.now());
-                console.log(`client ${clientId} added to the queue. Queue size: ${queue.length}`);
+                this.loggingAdapter.log(`client ${clientId} added to the queue. Queue size: ${queue.length}`);
                 return true;
             } else {
-                console.log(`client ${clientId} request discarded. Queue is full.`);
+                this.loggingAdapter.log(`client ${clientId} request discarded. Queue is full.`);
                 return false;
             }
         }
@@ -119,7 +125,7 @@ export module LeakyBucketStrategy {
             }
             await this.resetIfNeeded();
             const { queue } = await this.getQueueState();
-            console.log(`checking if client ${clientId} can be added to the queue. Queue size: ${queue.length}`);
+            this.loggingAdapter.log(`checking if client ${clientId} can be added to the queue. Queue size: ${queue.length}`);
             return queue.length < this.maxRequests;
         }
 
@@ -136,7 +142,7 @@ export module LeakyBucketStrategy {
         //                         console.error('failed to process request:', err);
         //                         reject(err);
         //                     } else {
-        //                         console.log(`processed request for client: ${clientId}`);
+        //                         this.loggingAdapter.log(`processed request for client: ${clientId}`);
         //                         resolve();
         //                     }
         //                 });

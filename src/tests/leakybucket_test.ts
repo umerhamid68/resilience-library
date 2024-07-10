@@ -1,12 +1,12 @@
 import { LeakyBucketStrategy } from '../rateLimiter/LeakyBucketStrategy';
-import { LoggingAdapter } from '../adapters/LoggingAdapter';
-import { TelemetryAdapter } from '../adapters/TelemetryAdapter';
+import { DefaultLoggingAdapter } from '../adapters/LoggingAdapter';
+import { DefaultTelemetryAdapter } from '../adapters/TelemetryAdapter';
 
 async function runLeakyBucketTest() {
     console.log('Starting Leaky Bucket Rate Limiter Test...');
 
-    const loggingAdapter = new LoggingAdapter();
-    const telemetryAdapter = new TelemetryAdapter();
+    const loggingAdapter = new DefaultLoggingAdapter();
+    const telemetryAdapter = new DefaultTelemetryAdapter();
     const dbPath = './leakyBucketDB';
     const key = 'api/endpoint7';
 

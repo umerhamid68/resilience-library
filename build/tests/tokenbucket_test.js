@@ -15,8 +15,8 @@ const TelemetryAdapter_1 = require("../adapters/TelemetryAdapter");
 function runTokenBucketTest() {
     return __awaiter(this, void 0, void 0, function* () {
         console.log('Starting Token Bucket Rate Limiter Test...');
-        const loggingAdapter = new LoggingAdapter_1.LoggingAdapter();
-        const telemetryAdapter = new TelemetryAdapter_1.TelemetryAdapter();
+        const loggingAdapter = new LoggingAdapter_1.DefaultLoggingAdapter();
+        const telemetryAdapter = new TelemetryAdapter_1.DefaultTelemetryAdapter();
         const dbPath = './tokenBucketDB';
         const key = 'api/endpoint';
         const tokenBucket = new TokenBucketStrategy_1.TokenBucketStrategy.TokenBucketStrategy(10, //maxTokens

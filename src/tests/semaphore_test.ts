@@ -1,9 +1,9 @@
 import { Semaphore } from '../semaphore/Semaphore';
-import { LoggingAdapter } from '../adapters/LoggingAdapter';
-import { TelemetryAdapter } from '../adapters/TelemetryAdapter';
+import { DefaultLoggingAdapter } from '../adapters/LoggingAdapter';
+import { DefaultTelemetryAdapter } from '../adapters/TelemetryAdapter';
 
-const loggingAdapter = new LoggingAdapter();
-const telemetryAdapter = new TelemetryAdapter();
+const loggingAdapter = new DefaultLoggingAdapter();
+const telemetryAdapter = new DefaultTelemetryAdapter();
 
 const semaphore = new Semaphore(3, './semaphoreDB', 'resource_key', loggingAdapter, telemetryAdapter);
 

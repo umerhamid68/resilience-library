@@ -14,6 +14,8 @@ export module TokenBucketStrategy {
         private resetThresholdInMillis: number;
         private dbReady: Promise<void>;
         private mutex: Mutex;
+        private loggingAdapter: LoggingAdapter;
+        private telemetryAdapter: TelemetryAdapter;
 
         constructor(maxTokens: number, refillRate: number, dbPath: string, key: string, resetThresholdInMillis: number = 3600000, loggingAdapter: LoggingAdapter, telemetryAdapter: TelemetryAdapter) {
             this.maxTokens = maxTokens;
@@ -22,13 +24,17 @@ export module TokenBucketStrategy {
             this.resetThresholdInMillis = resetThresholdInMillis;
             this.db = rocksdb(dbPath);
             this.mutex = new Mutex();
+            this.loggingAdapter = loggingAdapter;
+            this.telemetryAdapter = telemetryAdapter;
             this.dbReady = new Promise((resolve, reject) => {
                 this.db.open({ create_if_missing: true }, (err) => {
                     if (err) {
-                        console.error('failed to opendatabase:', err);
+                        this.loggingAdapter.log(`failed to opendatabase: ${err}`);
+                        //console.error('failed to opendatabase:', err);
                         reject(err);
                     } else {
-                        console.log('database open.');
+                        this.loggingAdapter.log('database open.');
+                        //this.loggingAdapter.log('database open.');
                         resolve();
                     }
                 });
@@ -37,20 +43,23 @@ export module TokenBucketStrategy {
 
         private async refill() {
             await this.dbReady;
-            //console.log('here 3');
+            //this.loggingAdapter.log('here 3');
                 const now = Date.now();
                 const { tokens, lastRefill } = await this.getBucketState();
                 const elapsed = (now - lastRefill) / 1000;
 
                 if (now - lastRefill > this.resetThresholdInMillis) {
-                    console.log(`time ${elapsed}s exceeds threshold. resetting`); //reset last refill time
+                    this.loggingAdapter.log(`time ${elapsed}s exceeds threshold. resetting`);
+                    //this.loggingAdapter.log(`time ${elapsed}s exceeds threshold. resetting`); //reset last refill time
                     await this.updateBucketState(this.maxTokens, now);
-                    console.log(`refilled 0 tokens (reset), new token count: ${this.maxTokens}`);
+                    this.loggingAdapter.log(`refilled 0 tokens (reset), new token count: ${this.maxTokens}`);
+                    //this.loggingAdapter.log(`refilled 0 tokens (reset), new token count: ${this.maxTokens}`);
                 } else {
                     const refillAmount = Math.max(0, Math.floor(elapsed * this.refillRate));
                     const newTokens = Math.min(this.maxTokens, tokens + refillAmount);
                     await this.updateBucketState(newTokens, now);
-                    console.log(`refilled ${refillAmount} tokens (${elapsed}s), new token count: ${newTokens}`);
+                    this.loggingAdapter.log(`refilled ${refillAmount} tokens (${elapsed}s), new token count: ${newTokens}`);
+                    //this.loggingAdapter.log(`refilled ${refillAmount} tokens (${elapsed}s), new token count: ${newTokens}`);
                 }
             
         }
@@ -62,7 +71,8 @@ export module TokenBucketStrategy {
                     this.db.get(this.key, (err, value) => {
                         if (err) {
                             if (err.message.includes('NotFound')) {
-                                console.log(`key notin DB. making new bucket state.`);
+                                this.loggingAdapter.log(`key notin DB. making new bucket state.`);
+                                //this.loggingAdapter.log(`key notin DB. making new bucket state.`);
                                 resolve({ tokens: this.maxTokens, lastRefill: Date.now() });
                             } else {
                                 reject(err);
@@ -75,9 +85,11 @@ export module TokenBucketStrategy {
                                 if (isNaN(tokens) || isNaN(lastRefill)) {
                                     throw new Error('invalid data format');
                                 }
-                                console.log(`-- gotten state from DB:: key: ${this.key}, tokens: ${tokens}, last Refill: ${lastRefill}`);
+                                this.loggingAdapter.log(`-- gotten state from DB:: key: ${this.key}, tokens: ${tokens}, last Refill: ${lastRefill}`);
+                                //this.loggingAdapter.log(`-- gotten state from DB:: key: ${this.key}, tokens: ${tokens}, last Refill: ${lastRefill}`);
                                 resolve({ tokens, lastRefill });
                             } catch (error) {
+                                this.loggingAdapter.log(`error parsing data: ${value.toString()}`);
                                 console.error(`error parsing data: ${value.toString()}`);
                                 reject(new Error('invalid data format'));
                             }
@@ -96,7 +108,7 @@ export module TokenBucketStrategy {
                         if (err) {
                             reject(err);
                         } else {
-                            console.log(`-- updated state in DB:: key: ${this.key}, data: ${data}`);
+                            this.loggingAdapter.log(`-- updated state in DB:: key: ${this.key}, data: ${data}`);
                             resolve();
                         }
                     });
@@ -111,13 +123,13 @@ export module TokenBucketStrategy {
 
             await this.refill();
             const { tokens } = await this.getBucketState();
-            console.log(`client ${clientId} is trying to hit. Current tokens: ${tokens}`);
+            this.loggingAdapter.log(`client ${clientId} is trying to hit. Current tokens: ${tokens}`);
             if (tokens > 0) {
                 await this.updateBucketState(tokens - 1, Date.now());
-                console.log(`client ${clientId} hit successful. Tokens left: ${tokens - 1}`);
+                this.loggingAdapter.log(`client ${clientId} hit successful. Tokens left: ${tokens - 1}`);
                 return true;
             }
-            console.log(`client ${clientId} hit failed. No tokens left.`);
+            this.loggingAdapter.log(`client ${clientId} hit failed. No tokens left.`);
             return false;
         }
 
@@ -127,7 +139,7 @@ export module TokenBucketStrategy {
             }
             await this.refill();
             const { tokens } = await this.getBucketState();
-            console.log(`check if client ${clientId} can hit. current tokens: ${tokens}`);
+            this.loggingAdapter.log(`check if client ${clientId} can hit. current tokens: ${tokens}`);
             return tokens > 0;
         }
     }

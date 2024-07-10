@@ -1,128 +1,4 @@
 "use strict";
-//////////////////////////////////////////////////////with reqs per second as processing rate
-/*import { RateLimitingStrategy } from './RateLimitingStrategy';
-import rocksdb from 'rocksdb';
-import { Mutex } from 'async-mutex';
-import { LoggingAdapter } from '../adapters/LoggingAdapter';
-import { TelemetryAdapter } from '../adapters/TelemetryAdapter';
-
-export module LeakyBucketStrategy {
-    export class LeakyBucketStrategy implements RateLimitingStrategy {
-        private maxRequests: number;
-        private ratePerSecond: number;
-        private db: rocksdb;
-        private key: string;
-        private dbReady: Promise<void>;
-        private mutex: Mutex;
-
-        constructor(maxRequests: number, ratePerSecond: number, dbPath: string, key: string, loggingAdapter: LoggingAdapter, telemetryAdapter: TelemetryAdapter) {
-            this.maxRequests = maxRequests;
-            this.ratePerSecond = ratePerSecond;
-            this.key = key;
-            this.db = rocksdb(dbPath);
-            this.mutex = new Mutex();
-            this.dbReady = new Promise((resolve, reject) => {
-                this.db.open({ create_if_missing: true }, (err) => {
-                    if (err) {
-                        console.error('failed to open database:', err);
-                        reject(err);
-                    } else {
-                        console.log('Database opened.');
-                        resolve();
-                    }
-                });
-            });
-        }
-
-        private async processRequests() {
-            await this.dbReady;
-            const now = Date.now();
-            const { currentBucketSize, lastRequestTime } = await this.getBucketState();
-            const elapsedTime = now - lastRequestTime;
-            const leakedTokens = Math.floor(elapsedTime * this.ratePerSecond / 1000);
-
-            const newBucketSize = Math.max(0, currentBucketSize - leakedTokens);
-            await this.updateBucketState(newBucketSize, now);
-            console.log(`processed requests: Leaked ${leakedTokens} tokens, new bucket size: ${newBucketSize}`);
-        }
-
-        private async getBucketState(): Promise<{ currentBucketSize: number, lastRequestTime: number }> {
-            return this.mutex.runExclusive(async () => {
-                return new Promise<{ currentBucketSize: number, lastRequestTime: number }>((resolve, reject) => {
-                    this.db.get(this.key, (err, value) => {
-                        if (err) {
-                            if (err.message.includes('NotFound')) {
-                                console.log(`key not found in DB. initializing new bucket state.`);
-                                resolve({ currentBucketSize: 0, lastRequestTime: Date.now() });
-                            } else {
-                                reject(err);
-                            }
-                        } else {
-                            try {
-                                const [currentBucketSizeStr, lastRequestTimeStr] = value.toString().split(':');
-                                const currentBucketSize = Number(currentBucketSizeStr);
-                                const lastRequestTime = Number(lastRequestTimeStr);
-                                if (isNaN(currentBucketSize) || isNaN(lastRequestTime)) {
-                                    throw new Error('Invalid data format');
-                                }
-                                console.log(`gotten state from DB:: Key: ${this.key}, currentBucketSize: ${currentBucketSize}, lastRequestTime: ${lastRequestTime}`);
-                                resolve({ currentBucketSize, lastRequestTime });
-                            } catch (error) {
-                                console.error(`error parsing data: ${value.toString()}`);
-                                reject(new Error('invalid data format'));
-                            }
-                        }
-                    });
-                });
-            });
-        }
-
-        private async updateBucketState(currentBucketSize: number, lastRequestTime: number): Promise<void> {
-            return this.mutex.runExclusive(async () => {
-                return new Promise<void>((resolve, reject) => {
-                    const data = `${currentBucketSize}:${lastRequestTime}`;
-                    this.db.put(this.key, data, (err) => {
-                        if (err) {
-                            reject(err);
-                        } else {
-                            console.log(`updated state in DB - Key: ${this.key}, Data: ${data}`);
-                            resolve();
-                        }
-                    });
-                });
-            });
-        }
-
-        async hit(clientId: string): Promise<boolean> {
-            if (!clientId) {
-                throw new Error('clientId cannot be null or undefined');
-            }
-
-            await this.processRequests();
-            const { currentBucketSize } = await this.getBucketState();
-
-            if (currentBucketSize < this.maxRequests) {
-                await this.updateBucketState(currentBucketSize + 1, Date.now());
-                console.log(`client ${clientId} added to the bucket. Current bucket size: ${currentBucketSize + 1}`);
-                return true;
-            } else {
-                console.log(`client ${clientId} request discarded. Bucket is full.`);
-                return false;
-            }
-        }
-
-        async check(clientId: string): Promise<boolean> {
-            if (!clientId) {
-                throw new Error('clientId cannot be null or undefined');
-            }
-
-            await this.processRequests();
-            const { currentBucketSize } = await this.getBucketState();
-            console.log(`checking if client ${clientId} can be added to the bucket. Current bucket size: ${currentBucketSize}`);
-            return currentBucketSize < this.maxRequests;
-        }
-    }
-}*/
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -148,14 +24,17 @@ var LeakyBucketStrategy;
             this.resetThresholdInMillis = resetThresholdInMillis;
             this.db = (0, rocksdb_1.default)(dbPath);
             this.mutex = new async_mutex_1.Mutex();
+            this.loggingAdapter = loggingAdapter;
+            this.telemetryAdapter = telemetryAdapter;
             this.dbReady = new Promise((resolve, reject) => {
                 this.db.open({ create_if_missing: true }, (err) => {
                     if (err) {
-                        console.error('Failed to open the database:', err);
+                        this.loggingAdapter.log(`failed to opendatabase: ${err}`);
+                        console.error('failed to open database:', err);
                         reject(err);
                     }
                     else {
-                        console.log('Database opened successfully.');
+                        this.loggingAdapter.log('database opened.');
                         resolve();
                     }
                 });
@@ -169,7 +48,7 @@ var LeakyBucketStrategy;
                         this.db.get(this.key, (err, value) => {
                             if (err) {
                                 if (err.message.includes('NotFound')) {
-                                    console.log(`Key not found in DB. Making new queue state.`);
+                                    this.loggingAdapter.log(`Key not found in DB. Making new queue state.`);
                                     resolve({ queue: [], lastProcessed: Date.now() });
                                 }
                                 else {
@@ -182,13 +61,14 @@ var LeakyBucketStrategy;
                                     const queue = queueStr.split(':').filter(Boolean);
                                     const lastProcessed = Number(lastProcessedStr);
                                     if (isNaN(lastProcessed)) {
-                                        throw new Error('Invalid data format');
+                                        throw new Error('invalid data format');
                                     }
-                                    console.log(`Retrieved state from DB - Key: ${this.key}, Queue: ${queue}, Last Processed: ${lastProcessed}`);
+                                    this.loggingAdapter.log(`--gotten state from DB - Key: ${this.key}, Queue: ${queue}, Last Processed: ${lastProcessed}`);
                                     resolve({ queue, lastProcessed });
                                 }
                                 catch (error) {
-                                    console.error(`Error parsing data: ${value.toString()}`);
+                                    this.loggingAdapter.log(`error parsing data: ${value.toString()}`);
+                                    console.error(`error parsing data: ${value.toString()}`);
                                     reject(new Error('Invalid data format'));
                                 }
                             }
@@ -208,7 +88,7 @@ var LeakyBucketStrategy;
                                 reject(err);
                             }
                             else {
-                                console.log(`Updated state in DB - Key: ${this.key}, Data: ${data}`);
+                                this.loggingAdapter.log(`--updated state in DB - Key: ${this.key}, Data: ${data}`);
                                 resolve();
                             }
                         });
@@ -222,9 +102,9 @@ var LeakyBucketStrategy;
                 const { queue, lastProcessed } = yield this.getQueueState();
                 const elapsed = now - lastProcessed;
                 if (elapsed > this.resetThresholdInMillis) {
-                    console.log(`elapsed time ${elapsed}ms exceeds threshold. resetting queue.`);
+                    this.loggingAdapter.log(`elapsed time ${elapsed}ms exceeds threshold. resetting queue.`);
                     yield this.updateQueueState([], now);
-                    console.log(`queue reset due to elapsed time. New lastprocessed time: ${now}`);
+                    this.loggingAdapter.log(`queue reset due to elapsed time. New lastprocessed time: ${now}`);
                 }
             });
         }
@@ -238,11 +118,11 @@ var LeakyBucketStrategy;
                 if (queue.length < this.maxRequests) {
                     queue.push(clientId);
                     yield this.updateQueueState(queue, Date.now());
-                    console.log(`client ${clientId} added to the queue. Queue size: ${queue.length}`);
+                    this.loggingAdapter.log(`client ${clientId} added to the queue. Queue size: ${queue.length}`);
                     return true;
                 }
                 else {
-                    console.log(`client ${clientId} request discarded. Queue is full.`);
+                    this.loggingAdapter.log(`client ${clientId} request discarded. Queue is full.`);
                     return false;
                 }
             });
@@ -254,7 +134,7 @@ var LeakyBucketStrategy;
                 }
                 yield this.resetIfNeeded();
                 const { queue } = yield this.getQueueState();
-                console.log(`checking if client ${clientId} can be added to the queue. Queue size: ${queue.length}`);
+                this.loggingAdapter.log(`checking if client ${clientId} can be added to the queue. Queue size: ${queue.length}`);
                 return queue.length < this.maxRequests;
             });
         }

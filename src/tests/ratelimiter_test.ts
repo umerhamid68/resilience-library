@@ -1,10 +1,10 @@
 import { TokenBucketStrategy } from '../rateLimiter/TokenBucketStrategy';
 import { FixedWindowCounterStrategy } from '../rateLimiter/FixedWindowCounter';
-import { LoggingAdapter } from '../adapters/LoggingAdapter';
-import { TelemetryAdapter } from '../adapters/TelemetryAdapter';
+import { DefaultLoggingAdapter } from '../adapters/LoggingAdapter';
+import { DefaultTelemetryAdapter } from '../adapters/TelemetryAdapter';
 
-const loggingAdapter = new LoggingAdapter();
-const telemetryAdapter = new TelemetryAdapter();
+const loggingAdapter = new DefaultLoggingAdapter();
+const telemetryAdapter = new DefaultTelemetryAdapter();
 
 async function testTokenBucketRateLimiter() {
     console.log('Starting Token Bucket Rate Limiter Test...');
@@ -39,7 +39,9 @@ async function testFixedWindowRateLimiter() {
         5,//max
         60000,//1 min
         './fixedWindowDB',
-        'api/endpoint'
+        'api/endpoint',
+        loggingAdapter,
+        telemetryAdapter
     );
 
     for (let i = 0; i < 7; i++) {

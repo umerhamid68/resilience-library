@@ -101,6 +101,7 @@ import { Semaphore } from '../semaphore/Semaphore';
 import { LoggingAdapter } from '../adapters/LoggingAdapter';
 import { TelemetryAdapter } from '../adapters/TelemetryAdapter';
 
+
 export class ClientSDK {
     private rateLimiter: RateLimiter;
     private circuitBreaker: CircuitBreaker;
@@ -130,8 +131,8 @@ export class ClientSDK {
         return await this.rateLimiter.check(clientId);
     }
 
-    callCircuitBreaker(func: Function, ...args: any[]): any {
-        return this.circuitBreaker.call(func, ...args);
+    async callCircuitBreaker(func: () => Promise<any>): Promise<any> {
+        return await this.circuitBreaker.execute(func);
     }
 
     async acquireSemaphore(): Promise<boolean> {

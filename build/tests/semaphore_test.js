@@ -12,8 +12,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const Semaphore_1 = require("../semaphore/Semaphore");
 const LoggingAdapter_1 = require("../adapters/LoggingAdapter");
 const TelemetryAdapter_1 = require("../adapters/TelemetryAdapter");
-const loggingAdapter = new LoggingAdapter_1.LoggingAdapter();
-const telemetryAdapter = new TelemetryAdapter_1.TelemetryAdapter();
+const loggingAdapter = new LoggingAdapter_1.DefaultLoggingAdapter();
+const telemetryAdapter = new TelemetryAdapter_1.DefaultTelemetryAdapter();
 const semaphore = new Semaphore_1.Semaphore(3, './semaphoreDB', 'resource_key', loggingAdapter, telemetryAdapter);
 function testSemaphore() {
     return __awaiter(this, void 0, void 0, function* () {
