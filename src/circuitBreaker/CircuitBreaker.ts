@@ -149,6 +149,17 @@ private async loadStateFromDB() {
         const stateAndStats = await this.getStateAndStatsFromDB();
         if (stateAndStats) {
             this.state = stateAndStats.state;
+        } else {
+            // Initialize state and stats if not found in DB
+            await this.saveStateAndStatsToDB({
+                state: this.state,
+                stats: {
+                    requestCount: 0,
+                    failureCount: 0,
+                    successCount: 0,
+                    timeoutCount: 0,
+                },
+            });
         }
         this.isInitialized = true;
     } catch (error) {
@@ -185,6 +196,7 @@ private async saveStateAndStatsToDB(stateAndStats: CircuitBreakerStateAndStats) 
     await CircuitBreaker.dbMutex.runExclusive(async () => {
         try {
             await this.putToDB(this.options.resourceName, JSON.stringify(stateAndStats));
+            console.log(`State and stats saved to DB for ${this.options.resourceName}: ${JSON.stringify(stateAndStats)}`);
         } catch (error) {
             console.log('Error saving state and stats to RocksDB: ' + error);
         }
@@ -225,8 +237,6 @@ private async incrementCounter(type: 'failure' | 'timeout' | 'success') {
 private async resetCounters() {
     const stateAndStats = await this.getStateAndStatsFromDB();
     if (stateAndStats) {
-        const currentTime = Date.now();
-        const windowStartTime = currentTime - this.options.rollingWindowSize;
         stateAndStats.stats.failureCount = 0;
         stateAndStats.stats.timeoutCount = 0;
         stateAndStats.stats.successCount = 0;
@@ -250,24 +260,23 @@ private async moveToOpenState() {
         this.startPingingService();
     } else {
         setTimeout(() => {
-            this.moveToHalfOpenState();
+            this.state = CircuitBreakerState.HALF_OPEN;
+            this.emit('stateChange', this.state);
+            console.log('Circuit breaker moved to HALF_OPEN state.');
+            this.telemetryAdapter.collect({ event: 'stateChange', state: this.state, resourceName: this.options.resourceName });
         }, this.options.sleepWindow);
     }
 }
 
-private async moveToHalfOpenState() {
-    this.state = CircuitBreakerState.HALF_OPEN;
-    const stateAndStats = await this.getStateAndStatsFromDB();
-    if (stateAndStats) {
-        stateAndStats.state = this.state;
-        stateAndStats.stats.successCount = 0;
-        await this.saveStateAndStatsToDB(stateAndStats);
-        this.emit('stateChange', this.state);
-        console.log('Circuit breaker moved to HALF_OPEN state after sleep window.');
-        this.telemetryAdapter.collect({ event: 'stateChange', state: this.state, resourceName: this.options.resourceName });
-    }
+private startPingingService() {
     if (this.options.pingService) {
-        this.stopPingingService();
+        this.pingInterval = setInterval(async () => {
+            const isServiceAvailable = await this.options.pingService!();
+            if (isServiceAvailable) {
+                clearInterval(this.pingInterval!);
+                this.moveToClosedState();
+            }
+        }, this.options.sleepWindow);
     }
 }
 
@@ -286,68 +295,47 @@ private async moveToClosedState() {
 private async handleCommandFailure(error: any) {
     const isTimeout = error.status === 408 || error.code === 'ResourceExhausted';
     if (isTimeout) {
-        console.log(`Timeout error:${error.message}`);
         await this.incrementTimeoutCounter();
     } else {
-        console.log(`Failure error:${error.message}`);
         await this.incrementFailureCounter();
     }
-
-    const stateAndStats = await this.getStateAndStatsFromDB();
-    if (stateAndStats && (this.state === CircuitBreakerState.HALF_OPEN || stateAndStats.stats.failureCount >= this.failureThreshold || stateAndStats.stats.timeoutCount >= this.timeoutThreshold)) {
-        await this.moveToOpenState();
-    }
 }
 
-private invokeFallback(fallback?: () => any, error?: any): any {
-    return fallback ? fallback() : this.options.fallbackMethod ? this.options.fallbackMethod() : Promise.reject(error || 'Circuit breaker is open (Fail Fast).');
-}
-
-private async pingServiceLogic() {
-    if (this.options.pingService) {
-        const isServiceAvailable = await this.options.pingService();
-        if (isServiceAvailable && this.state === CircuitBreakerState.OPEN) {
-            await this.moveToHalfOpenState();
-            clearInterval(this.pingInterval);
-        }
-    }
-}
-
-private startPingingService() {
-    if (this.pingInterval) clearInterval(this.pingInterval);
-    this.pingInterval = setInterval(() => this.pingServiceLogic(), this.options.sleepWindow);
-}
-
-private stopPingingService() {
-    if (this.pingInterval) clearInterval(this.pingInterval);
-}
-
-public async execute(command: () => Promise<any>, fallback?: () => any): Promise<any> {
-    await this.waitForInitialization();
-
-    if (this.state === CircuitBreakerState.OPEN) {
-        this.telemetryAdapter.collect({ event: 'blocked', resourceName: this.options.resourceName });
-        return this.invokeFallback(fallback, Error('Circuit breaker is in OPEN state. Request blocked.'));
-    }
-
+private async shouldOpenCircuit() {
     const stateAndStats = await this.getStateAndStatsFromDB();
     if (stateAndStats) {
-        stateAndStats.stats.requestCount++;
+        const { failureCount, timeoutCount, requestCount } = stateAndStats.stats;
+        return (
+            failureCount >= this.failureThreshold ||
+            timeoutCount >= this.timeoutThreshold ||
+            requestCount >= this.successThreshold
+        );
+    }
+    return false;
+}
+
+private async shouldMoveToCloseState(): Promise<boolean> {
+    const stateAndStats = await this.getStateAndStatsFromDB();
+    if (!stateAndStats) return false;
+
+    const { successCount } = stateAndStats.stats;
+
+    return successCount >= this.successThreshold;
+}
+
+private async resetSuccessCounter() {
+    const stateAndStats = await this.getStateAndStatsFromDB();
+    if (stateAndStats) {
+        stateAndStats.stats.successCount = 0;
         await this.saveStateAndStatsToDB(stateAndStats);
+    }
+}
 
-        try {
-            const result = await command();
-            await this.incrementSuccessCounter();
-
-            if (this.state === CircuitBreakerState.HALF_OPEN && stateAndStats.stats.successCount >= this.successThreshold) {
-                await this.moveToClosedState();
-            }
-
-            return result;
-        } catch (error: any) {
-            await this.handleCommandFailure(error);
-            return this.invokeFallback(fallback, error);
-        }
+private async invokeFallback<T>(fallback: (() => Promise<T>) | undefined, error: Error): Promise<T> {
+    if (fallback) {
+        return fallback();
+    } else {
+        throw error;
     }
 }
 
@@ -394,6 +382,44 @@ public async currentStateFromDB(): Promise<CircuitBreakerState> {
     const stateAndStats = await this.getStateAndStatsFromDB();
     return stateAndStats ? stateAndStats.state : this.state;
 }
+
+
+public async execute<T>(command: () => Promise<T>, fallback?: () => Promise<T>): Promise<T> {
+    await this.waitForInitialization();
+
+    switch (this.state) {
+        case CircuitBreakerState.OPEN:
+            return this.invokeFallback(fallback, Error('Circuit breaker is in OPEN state. Request blocked.'));
+
+        case CircuitBreakerState.HALF_OPEN:
+            await this.resetSuccessCounter();
+            try {
+                const result = await command();
+                await this.incrementSuccessCounter();
+                if (await this.shouldMoveToCloseState()) {
+                    await this.moveToClosedState();
+                }
+                return result;
+            } catch (error: any) {
+                await this.handleCommandFailure(error);
+                return this.invokeFallback(fallback, error);
+            }
+
+        case CircuitBreakerState.CLOSED:
+        default:
+            try {
+                const result = await command();
+                await this.incrementSuccessCounter();
+                return result;
+            } catch (error: any) {
+                await this.handleCommandFailure(error);
+                if (await this.shouldOpenCircuit()) {
+                    await this.moveToOpenState();
+                }
+                return this.invokeFallback(fallback, error);
+            }
+    }
+}
 }
 
-export { CircuitBreaker, CircuitBreakerState, CircuitBreakerOptions, CircuitBreakerSingleton };
+export { CircuitBreaker, CircuitBreakerSingleton, CircuitBreakerState ,CircuitBreakerOptions};
