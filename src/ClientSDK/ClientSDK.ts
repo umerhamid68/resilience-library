@@ -95,9 +95,9 @@ export class ClientSDK {
     }
 }*/
 //////////////////////////////////////////////////////fixed semaphore
-import { RateLimiter } from '../rateLimiter/RateLimiter';
+import { RateLimiter } from '../RateLimiter';
 import { CircuitBreaker } from '../circuitBreaker/CircuitBreaker';
-import { Semaphore } from '../semaphore/Semaphore';
+import { Semaphore } from '../Semaphore';
 import { LoggingAdapter } from '../adapters/LoggingAdapter';
 import { TelemetryAdapter } from '../adapters/TelemetryAdapter';
 

@@ -21,7 +21,7 @@ async function runLeakyBucketTest() {
 
     try {
         // Give some time for the database to be ready
-        await leakyBucket['dbReady'];
+        //await leakyBucket['dbReady'];
         console.log('Database opened successfully.');
 
         for (let i = 1; i <= 15; i++) {
@@ -35,6 +35,8 @@ async function runLeakyBucketTest() {
     } catch (error) {
         console.error('Error during rate limiter tests:', error);
     }
+    const finalCheck = await leakyBucket.check('testClient');
+    console.log(`Final check: ${finalCheck ? 'Allowed' : 'Denied'}`);
 }
 
 runLeakyBucketTest();

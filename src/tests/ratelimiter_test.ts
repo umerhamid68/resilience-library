@@ -14,7 +14,6 @@ async function testTokenBucketRateLimiter() {
         1,//per second
         './tokenBucketDB',
         'api/endpoint',
-        10,//1ms delay catering
         loggingAdapter,
         telemetryAdapter
     );
@@ -46,7 +45,9 @@ async function testFixedWindowRateLimiter() {
 
     for (let i = 0; i < 7; i++) {
         try {
+            console.log('here');
             const allowed = await rateLimiter.hit('testClient');
+            console.log('here2');
             console.log(`Hit attempt ${i + 1}: ${allowed ? 'Allowed' : 'Denied'}`);
         } catch (error) {
             console.error(`Error during hit attempt ${i + 1}:`, error);
@@ -58,7 +59,7 @@ async function testFixedWindowRateLimiter() {
 }
 
 async function runTests() {
-    await testTokenBucketRateLimiter();
+    //await testTokenBucketRateLimiter();
     await testFixedWindowRateLimiter();
 }
 

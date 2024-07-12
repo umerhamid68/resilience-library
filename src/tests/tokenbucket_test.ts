@@ -12,10 +12,9 @@ async function runTokenBucketTest() {
 
     const tokenBucket = new TokenBucketStrategy.TokenBucketStrategy(
         10,//maxTokens
-        1,//per second
+        100,//per second
         dbPath,
-        key,
-        3600000,  
+        key,  
         loggingAdapter,
         telemetryAdapter
     );
@@ -24,6 +23,8 @@ async function runTokenBucketTest() {
         // await tokenBucket['dbReady'];
         // console.log('Database opened successfully.');
         // console.log('here');
+        const firstCheck = await tokenBucket.check('testClienta');
+        console.log(`Final check: ${firstCheck ? 'Allowed' : 'Denied'}`);
         for (let i = 1; i <= 15; i++) {
             try {
                 console.log('here 2');
@@ -36,6 +37,8 @@ async function runTokenBucketTest() {
     } catch (error) {
         console.error('Error during rate limiter tests:', error);
     }
+    const finalCheck = await tokenBucket.check('testClient');
+    console.log(`Final check: ${finalCheck ? 'Allowed' : 'Denied'}`);
 }
 
 runTokenBucketTest();
