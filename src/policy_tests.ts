@@ -3,8 +3,9 @@ import { FixedWindowCounterStrategy } from './rateLimiter/FixedWindowCounter';
 import { Semaphore } from './Semaphore';
 import { DefaultLoggingAdapter } from './adapters/LoggingAdapter';
 import { DefaultTelemetryAdapter } from './adapters/TelemetryAdapter';
-import { Policy,wrap } from './Policy';
+import { Policy } from './Policy';
 import { RateLimiter } from './RateLimiter';
+import { TokenBucketOptions } from './rateLimiter/RateLimitingStrategyOptions';
 
 const loggingAdapter = new DefaultLoggingAdapter();
 const telemetryAdapter = new DefaultTelemetryAdapter();
@@ -12,24 +13,13 @@ const telemetryAdapter = new DefaultTelemetryAdapter();
 async function testTokenBucketRateLimiter() {
     console.log('Starting Token Bucket Rate Limiter Test...');
 
-    /*const tokenBucketStrategy = new TokenBucketStrategy.TokenBucketStrategy(
-        10, // max tokens
-        1, // refill rate per second
-        './tokenBucketdb',
-        'api/endpoint',
-        loggingAdapter,
-        telemetryAdapter
-    );*/
-
-    const rateLimiter = RateLimiter.create("token_bucket",{
+    const tokenBucketOptions: TokenBucketOptions = {
+        type: 'token_bucket',
         maxTokens: 10,
-    refillRate: 1,
-    dbPath: './tokenBucket',
-    key: 'api/endpoint',
-    loggingAdapter,
-    telemetryAdapter
-    });
-    const rateLimiterPolicy = wrap(rateLimiter);
+        key: 'api/endpoint'
+    };
+    const rateLimiter = RateLimiter.create(tokenBucketOptions);
+    const rateLimiterPolicy = Policy.wrap(rateLimiter);
 
     for (let i = 0; i < 12; i++) {
         try {
@@ -54,7 +44,7 @@ async function testTokenBucketRateLimiter() {
 async function testSemaphore() {
     console.log('Starting Semaphore Test...');
 
-    const semaphore = Semaphore.create(3, './semaphoreDB', 'resource_key', loggingAdapter, telemetryAdapter);
+    const semaphore = Semaphore.create('resource_key',3);
     //const semaphorePolicy = new Policy(semaphore);
 
     for (let i = 0; i < 5; i++) {

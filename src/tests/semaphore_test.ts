@@ -6,7 +6,7 @@ import { DefaultTelemetryAdapter } from '../adapters/TelemetryAdapter';
 const loggingAdapter = new DefaultLoggingAdapter();
 const telemetryAdapter = new DefaultTelemetryAdapter();
 
-const semaphore = Semaphore.create(3, './semaphoreDB', 'resource_key', loggingAdapter, telemetryAdapter);
+const semaphore = Semaphore.create('resource_key',3);
 
 async function testSemaphore() {
     console.log('Starting Semaphore Test...');

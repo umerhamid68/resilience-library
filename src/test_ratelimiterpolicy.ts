@@ -1,21 +1,28 @@
 import { RateLimiter } from './RateLimiter';
+import { TokenBucketOptions } from './rateLimiter/RateLimitingStrategyOptions';
 // import { CircuitBreaker } from './CircuitBreaker';
 import { Semaphore } from './Semaphore';
-import { wrap } from './Policy';
+//import {  } from './Policy';
+import { IPolicyContext, Policy } from './Policy';
 import { DefaultLoggingAdapter } from './adapters/LoggingAdapter';
 import { DefaultTelemetryAdapter} from './adapters/TelemetryAdapter';
 
 const loggingAdapter = new DefaultLoggingAdapter();
 const telemetryAdapter = new DefaultTelemetryAdapter();
 
-const rateLimiter = RateLimiter.create('token_bucket', {
+/*const rateLimiter = RateLimiter.create('token_bucket', {
     maxTokens: 10,
     refillRate: 1,
     dbPath: './rateLimiterDB',
-    key: 'api/endpoint',
-    loggingAdapter,
-    telemetryAdapter
-});
+    key: 'api/endpoint'
+});*/
+
+const tokenBucketOptions: TokenBucketOptions = {
+    type: 'token_bucket',
+    maxTokens: 10,  
+    key: 'api/endpoint'
+};
+const rateLimiter = RateLimiter.create(tokenBucketOptions);
 
 /*const circuitBreaker = new CircuitBreaker({
     failureThreshold: 5,
@@ -24,9 +31,21 @@ const rateLimiter = RateLimiter.create('token_bucket', {
     telemetryAdapter
 });*/
 
-const semaphore = Semaphore.create(3, './semaphoreDB', 'resource_key', loggingAdapter, telemetryAdapter);
 
-const policy = wrap(semaphore,rateLimiter);
+
+const semaphore = Semaphore.create('resource_key',3);
+
+const policy = Policy.wrap(semaphore,rateLimiter);
+
+policy.beforeExecute = async (context: IPolicyContext) => {
+    loggingAdapter.log('Before execution');
+    telemetryAdapter.collect({ event: 'before_execution' });
+};
+
+policy.afterExecute = async (context: IPolicyContext) => {
+    loggingAdapter.log('After execution');
+    telemetryAdapter.collect({ event: 'after_execution' });
+};
 
 async function handleRequest() {
     try {

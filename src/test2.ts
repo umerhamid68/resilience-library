@@ -1,10 +1,13 @@
+/////////////////////////////////////////updated logging and telemetry
 import express from 'express';
 import { RateLimiter } from './RateLimiter';
-//import { CircuitBreaker } from './CircuitBreaker';
+import { CircuitBreakerFactory, CircuitBreakerState } from './circuitBreaker/CircuitBreaker';
 import { Semaphore } from './Semaphore';
-import { wrap, IPolicyContext } from './Policy';
+import { Policy, IPolicyContext } from './Policy';
 import { DefaultLoggingAdapter, LoggingAdapter } from './adapters/LoggingAdapter';
 import { DefaultTelemetryAdapter, TelemetryAdapter } from './adapters/TelemetryAdapter';
+import { ErrorPercentageCircuitBreakerOptions } from './circuitBreaker/CircuitBreakerOptions';
+import { TokenBucketOptions } from './rateLimiter/RateLimitingStrategyOptions';
 
 const app = express();
 const port = 3001;
@@ -12,34 +15,53 @@ const loggingAdapter: LoggingAdapter = new DefaultLoggingAdapter();
 const telemetryAdapter: TelemetryAdapter = new DefaultTelemetryAdapter();
 
 // Initialize rate limiter
-const rateLimiter = RateLimiter.create('token_bucket', {
+// const rateLimiter = RateLimiter.create('token_bucket', {
+//     maxTokens: 10,
+//     refillRate: 1,
+//     dbPath: './rateLimiterDB',
+//     key: 'api/endpoint'
+// });
+
+
+const tokenBucketOptions: TokenBucketOptions = {
+    type: 'token_bucket',
     maxTokens: 10,
-    refillRate: 1,
-    dbPath: './rateLimiterDB',
-    key: 'api/endpoint',
-    loggingAdapter,
-    telemetryAdapter
-});
+    key: 'api/endpoint'
+};
+const rateLimiter = RateLimiter.create(tokenBucketOptions);
 
-// Initialize circuit breaker
-/*const circuitBreaker = new CircuitBreaker({
-    failureThreshold: 5,
-    recoveryTimeout: 10000,
-    loggingAdapter,
-    telemetryAdapter
-});*/
+const errorPercentageOptions: ErrorPercentageCircuitBreakerOptions = {
+    resourceName: 'ResourceService',
+    rollingWindowSize: 10000,
+    requestVolumeThreshold: 10,
+    errorThresholdPercentage: 50,
+    sleepWindow: 3000,
+    fallbackMethod: () => 'Fallback response',
+    pingService: async () => {
+        const isServiceOperational = Math.random() < 0.8; // 80% chance of service being operational
+        return isServiceOperational;
+    }
+};
+const circuitBreaker = CircuitBreakerFactory.create(errorPercentageOptions);
+const semaphore = Semaphore.create('resource_key',3);
 
-// Initialize semaphore
-const semaphore = Semaphore.create(3, './semaphoreDB', 'resource_key', loggingAdapter, telemetryAdapter);
+const policy = Policy.wrap(rateLimiter, semaphore, circuitBreaker);
 
-// Create the composed policy
-const policy = wrap(rateLimiter, semaphore);
+policy.beforeExecute = async (context: IPolicyContext) => {
+    loggingAdapter.log('Before execution');
+    telemetryAdapter.collect({ event: 'before_execution' });
+};
 
-// Express server setup
+policy.afterExecute = async (context: IPolicyContext) => {
+    loggingAdapter.log('After execution');
+    telemetryAdapter.collect({ event: 'after_execution' });
+};
+
 app.get('/', (req, res) => {
     res.send('Welcome to the Rate Limiter, Circuit Breaker, and Semaphore Service!');
 });
-////http://localhost:3001/test?clientId=test
+
+//test endpoint: http://localhost:3001/test?clientId=test
 app.get('/test', async (req, res) => {
     const clientId = req.query.clientId as string;
     if (!clientId) {
@@ -58,7 +80,6 @@ app.get('/test', async (req, res) => {
     }
 });
 
-// Endpoint to directly test rate limiter
 app.get('/hit', async (req, res) => {
     const clientId = req.query.clientId as string;
     if (!clientId) {
@@ -77,7 +98,6 @@ app.get('/hit', async (req, res) => {
     }
 });
 
-// Endpoint to check rate limiter
 app.get('/check', async (req, res) => {
     const clientId = req.query.clientId as string;
     if (!clientId) {
@@ -93,7 +113,6 @@ app.get('/check', async (req, res) => {
     }
 });
 
-// Endpoint to acquire semaphore
 app.get('/semaphore/acquire', async (req, res) => {
     try {
         const acquired = await semaphore.acquire();
@@ -108,7 +127,6 @@ app.get('/semaphore/acquire', async (req, res) => {
     }
 });
 
-// Endpoint to release semaphore
 app.get('/semaphore/release', async (req, res) => {
     try {
         await semaphore.release();
