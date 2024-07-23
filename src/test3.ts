@@ -14,7 +14,7 @@ import { TokenBucketOptions,FixedWindowCounterOptions,LeakyBucketOptions } from 
 const fixedWindowCounterOptions: FixedWindowCounterOptions = {
     type: 'fixed_window',
     maxRequests: 10,
-    key: 'api/endpoint'
+    key: 'api/endpoint2'
 };
 const fixedWindowRateLimiter = RateLimiter.create(fixedWindowCounterOptions);
 
@@ -23,17 +23,23 @@ const fixedWindowRateLimiter = RateLimiter.create(fixedWindowCounterOptions);
 const tokenBucketOptions: TokenBucketOptions = {
     type: 'token_bucket',
     maxTokens: 10,
-    key: 'api/endpoint'
+    key: 'api/endpoint3'
 };
 const tokenBucketRateLimiter = RateLimiter.create(tokenBucketOptions);
 
 
-const leakyBucketOptions: LeakyBucketOptions = {
+/*const leakyBucketOptions: LeakyBucketOptions = {
     type: 'leaky_bucket',
     maxRequests: 10,
-    key: 'api/endpoint'
+    key: 'api/endpoint4'
 };
-const leakyBucketRateLimiter = RateLimiter.create(leakyBucketOptions);
+const leakyBucketRateLimiter = RateLimiter.create(leakyBucketOptions);*/
+
+const leakyBucketRateLimiter2 = RateLimiter.create({
+    type: 'token_bucket',
+    maxTokens: 10,
+    key: 'api/endpoint5'
+})
 
 /*const f1 = RateLimiter.create('token_bucket', {
     key: 'a1',
@@ -75,15 +81,15 @@ async function testRateLimiters() {
         await handleRequest(fixedWindowRateLimiter, `${clientId}_fixed_window_${i}`);
     }*/
 
-    /*console.log('Testing Leaky Bucket Rate Limiter:');
+    console.log('Testing Leaky Bucket Rate Limiter:');
     for (let i = 0; i < 15; i++) {
-        await handleRequest(leakyBucketRateLimiter, `${clientId}_leaky_bucket_${i}`);
-    }*/
+        await handleRequest(leakyBucketRateLimiter2, `${clientId}_leaky_bucket_${i}`);
+    }
 
-    console.log('Testing Token Bucket Rate Limiter:');
+    /*console.log('Testing Token Bucket Rate Limiter:');
     for (let i = 0; i < 12; i++) {
         await handleRequest(tokenBucketRateLimiter, `${clientId}_token_bucket_${i}`);
-    }
+    }*/
 }
 testRateLimiters().catch(error => {
     console.error('Unexpected error in test:', error);

@@ -23,7 +23,7 @@ import { IPolicy, IPolicyContext } from './Policy';
 export class RateLimiter implements IPolicy {
     private strategy: RateLimitingStrategy;
 
-    public beforeExecute?: (context: IPolicyContext) => Promise<void>;
+    public beforeExecut?: (context: IPolicyContext) => Promise<void>;
     public afterExecute?: (context: IPolicyContext) => Promise<void>;
 
     constructor(strategy: RateLimitingStrategy) {
@@ -50,7 +50,7 @@ export class RateLimiter implements IPolicy {
         const clientId = 'defaultClientId'; // Use a default clientId or pass it as an argument if needed
         const isAllowed = await this.hit(clientId);
         if (isAllowed) {
-            if (this.beforeExecute) await this.beforeExecute({ signal });
+            if (this.beforeExecut) await this.beforeExecut({ signal });
             const result = await fn({ signal });
             if (this.afterExecute) await this.afterExecute({ signal });
             return result;

@@ -1,5 +1,5 @@
 import { RateLimiter } from './RateLimiter';
-import { TokenBucketOptions } from './rateLimiter/RateLimitingStrategyOptions';
+import { FixedWindowCounterOptions, LeakyBucketOptions, TokenBucketOptions } from './rateLimiter/RateLimitingStrategyOptions';
 // import { CircuitBreaker } from './CircuitBreaker';
 import { Semaphore } from './Semaphore';
 //import {  } from './Policy';
@@ -22,7 +22,20 @@ const tokenBucketOptions: TokenBucketOptions = {
     maxTokens: 10,  
     key: 'api/endpoint'
 };
-const rateLimiter = RateLimiter.create(tokenBucketOptions);
+
+const leakyBucketOptions: LeakyBucketOptions = {
+    type:'leaky_bucket',
+    maxRequests:10,
+    key:'api/endpoint'
+
+}
+
+const fixedWindowOptions:  FixedWindowCounterOptions = {
+    type:'fixed_window',
+    maxRequests:10,
+    key:'api/endpoint'
+}
+const rateLimiter = RateLimiter.create(fixedWindowOptions);
 
 /*const circuitBreaker = new CircuitBreaker({
     failureThreshold: 5,
@@ -33,9 +46,9 @@ const rateLimiter = RateLimiter.create(tokenBucketOptions);
 
 
 
-const semaphore = Semaphore.create('resource_key',3);
+/*const semaphore = Semaphore.create('resource_key',3);*/
 
-const policy = Policy.wrap(semaphore,rateLimiter);
+const policy = Policy.wrap(rateLimiter);
 
 policy.beforeExecute = async (context: IPolicyContext) => {
     loggingAdapter.log('Before execution');

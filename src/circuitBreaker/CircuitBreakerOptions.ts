@@ -3,6 +3,7 @@ export interface BaseCircuitBreakerOptions {
     resourceName: string;
     rollingWindowSize: number;
     sleepWindow: number;
+    slowCallDurationThreshold?:number;
     fallbackMethod?: () => any;
     pingService?: () => Promise<boolean>;
 }

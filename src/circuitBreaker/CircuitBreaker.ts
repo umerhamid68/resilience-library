@@ -1,9 +1,6 @@
-////////////////////////////////////////////////////////////new circuitbreaker
-import RocksDB from 'rocksdb';
+///////////////////////////////////////////////////database abstraction
 import { EventEmitter } from 'events';
-import { mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
-import { Mutex } from 'async-mutex';
+import { Database } from '../Database';
 import grpc from '@grpc/grpc-js';
 import { IPolicy, IPolicyContext } from '../Policy';
 import {
@@ -48,7 +45,7 @@ function transformError(error: any): UnifiedError {
     } else {
         return {
             isTimeout: false,
-            isFailure: false,
+            isFailure: true,
             message: 'Unknown error structure',
             originalError: error,
         };
@@ -73,6 +70,11 @@ interface CircuitBreakerStateAndStats {
     stats: CircuitStats;
 }
 
+interface Bucket {
+    timestamp: number;
+    stats: CircuitStats;
+}
+
 type CircuitBreakerOptions = ErrorPercentageCircuitBreakerOptions | ExplicitThresholdCircuitBreakerOptions;
 
 class CircuitBreakerFactory {
@@ -91,15 +93,16 @@ class CircuitBreakerFactory {
 
 class CircuitBreaker extends EventEmitter implements IPolicy {
     private state: CircuitBreakerState = CircuitBreakerState.CLOSED;
-    private static db: RocksDB;
-    private static isDbInitialized = false;
+    private db: Database;
     private isInitialized = false;
     private options: CircuitBreakerOptions;
     private pingInterval?: NodeJS.Timeout;
     private failureThreshold!: number;
     private timeoutThreshold!: number;
     private successThreshold!: number;
-    private static dbMutex = new Mutex(); // Mutex for synchronizing database access
+    private slowCallDurationThreshold: number;
+    private buckets: Bucket[] = [];
+    private epochSize: number = 1; // 1 second epochs
 
     public beforeExecute?: (context: IPolicyContext) => Promise<void>;
     public afterExecute?: (context: IPolicyContext) => Promise<void>;
@@ -107,7 +110,9 @@ class CircuitBreaker extends EventEmitter implements IPolicy {
     constructor(options: CircuitBreakerOptions) {
         super();
         this.options = options;
-
+        this.slowCallDurationThreshold = options.slowCallDurationThreshold || 60000; // ms
+        this.db = Database.getInstance();
+        
         this.validateOptions();
         this.calculateThresholds();
 
@@ -141,40 +146,19 @@ class CircuitBreaker extends EventEmitter implements IPolicy {
         }
     }
 
-    private static async initDbInstance() {
-        if (!CircuitBreaker.isDbInitialized) {
-            try {
-                const dbPath = join(__dirname, 'db');
-                console.log(`Database path: ${dbPath}`);
-
-                if (!existsSync(dbPath)) {
-                    console.log(`Directory does not exist. Creating: ${dbPath}`);
-                    mkdirSync(dbPath, { recursive: true });
-                }
-
-                CircuitBreaker.db = new RocksDB(dbPath);
-                await new Promise<void>((resolve, reject) => {
-                    CircuitBreaker.db.open({ create_if_missing: true }, (err) => {
-                        if (err) {
-                            reject('Failed to open the database: ' + err);
-                        } else {
-                            console.log('Database opened successfully.');
-                            resolve();
-                        }
-                    });
-                });
-
-                CircuitBreaker.isDbInitialized = true;
-            } catch (err) {
-                console.log('Error initializing RocksDB: ' + err);
-            }
-        }
+    private async initDb() {
+        await this.db.waitForInitialization();
+        await this.resetKeyIfExists(); 
+        await this.loadStateFromDB();
+        this.initializeBuckets();
+        setInterval(() => this.rollBuckets(), this.epochSize * 1000);
     }
 
-    private async initDb() {
-        await CircuitBreaker.initDbInstance();
-        await this.loadStateFromDB();
-        setInterval(() => this.resetCounters(), this.options.rollingWindowSize);
+    private async resetKeyIfExists(): Promise<void> {
+        const value = await this.db.get(this.options.resourceName);
+        if (value !== null) {
+            await this.db.del(this.options.resourceName);
+        }
     }
 
     private async loadStateFromDB() {
@@ -206,75 +190,106 @@ class CircuitBreaker extends EventEmitter implements IPolicy {
     }
 
     private async getStateAndStatsFromDB(): Promise<CircuitBreakerStateAndStats | null> {
-        return CircuitBreaker.dbMutex.runExclusive(() => {
-            return new Promise((resolve, reject) => {
-                CircuitBreaker.db.get(this.options.resourceName, (err, value) => {
-                    if (err) {
-                        if (err.message.includes('NotFound')) {
-                            console.log('State and stats key not found in DB, initializing with default values.');
-                            resolve(null);
-                        } else {
-                            reject(err);
-                        }
-                    } else {
-                        resolve(value ? JSON.parse(value.toString()) : null);
-                    }
-                });
-            });
-        });
+        const value = await this.db.get(this.options.resourceName);
+        return value ? JSON.parse(value) : null;
     }
 
     private async saveStateAndStatsToDB(stateAndStats: CircuitBreakerStateAndStats) {
-        await CircuitBreaker.dbMutex.runExclusive(async () => {
-            try {
-                await this.putToDB(this.options.resourceName, JSON.stringify(stateAndStats));
-                console.log(`State and stats saved to DB for ${this.options.resourceName}: ${JSON.stringify(stateAndStats)}`);
-            } catch (error) {
-                console.log('Error saving state and stats to RocksDB: ' + error);
+        try {
+            await this.db.put(this.options.resourceName, JSON.stringify(stateAndStats));
+            console.log(`State and stats saved to DB for ${this.options.resourceName}: ${JSON.stringify(stateAndStats)}`);
+        } catch (error) {
+            console.log('Error saving state and stats to RocksDB: ' + error);
+        }
+    }
+
+    private async initializeBuckets() {
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        const initialBucket: Bucket = {
+            timestamp: currentTimestamp,
+            stats: { requestCount: 0, failureCount: 0, successCount: 0, timeoutCount: 0 }
+        };
+        this.buckets.push(initialBucket);
+        await this.saveBucket(initialBucket);
+    }
+
+    private async rollBuckets() {
+        console.log('----------------roll');
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        const lastBucketTimestamp = this.buckets[this.buckets.length - 1].timestamp;
+
+        if (currentTimestamp > lastBucketTimestamp) {
+            const newBucket: Bucket = {
+                timestamp: currentTimestamp,
+                stats: { requestCount: 0, failureCount: 0, successCount: 0, timeoutCount: 0 }
+            };
+
+            this.buckets.push(newBucket);
+            await this.saveBucket(newBucket);
+
+            if (this.buckets.length > Math.ceil(this.options.rollingWindowSize / this.epochSize)) {
+                const oldBucket = this.buckets.shift();
+                if (oldBucket) {
+                    await this.deleteBucket(oldBucket);
+                }
             }
-        });
+        }
     }
 
-    private putToDB(key: string, value: string): Promise<void> {
-        return new Promise((resolve, reject) => {
-            CircuitBreaker.db.put(key, value, (err) => {
-                if (err) reject(err);
-                else resolve();
-            });
-        });
+    private async saveBucket(bucket: Bucket) {
+        const key = `${this.options.resourceName}:${bucket.timestamp}`;
+        console.log(`Saving bucket: ${key} with stats: ${JSON.stringify(bucket.stats)}`);
+        await this.db.put(key, JSON.stringify(bucket));
     }
 
-    private async incrementFailureCounter() {
-        await this.incrementCounter('failure');
-    }
-
-    private async incrementTimeoutCounter() {
-        await this.incrementCounter('timeout');
-    }
-
-    private async incrementSuccessCounter() {
-        await this.incrementCounter('success');
+    private async deleteBucket(bucket: Bucket) {
+        const key = `${this.options.resourceName}:${bucket.timestamp}`;
+        console.log(`deleting bucket ${key}`);
+        await this.db.del(key);
     }
 
     private async incrementCounter(type: 'failure' | 'timeout' | 'success') {
-        const stateAndStats = await this.getStateAndStatsFromDB();
-        if (stateAndStats) {
-            stateAndStats.stats[`${type}Count`]++;
-            stateAndStats.stats.requestCount++;
-            await this.saveStateAndStatsToDB(stateAndStats);
-            console.log({ event: type, resourceName: this.options.resourceName });
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        let bucket = this.buckets.find(b => b.timestamp === currentTimestamp);
+
+        if (!bucket) {
+            bucket = {
+                timestamp: currentTimestamp,
+                stats: { requestCount: 0, failureCount: 0, successCount: 0, timeoutCount: 0 }
+            };
+            this.buckets.push(bucket);
+        }
+
+        bucket.stats[`${type}Count`]++;
+        bucket.stats.requestCount++;
+        await this.saveBucket(bucket);
+
+        console.log({ event: type, resourceName: this.options.resourceName });
+    }
+
+    private async checkStateTransition() {
+        const { failureCount, timeoutCount, requestCount } = await this.calculateAggregates();
+        const shouldOpen = failureCount >= this.failureThreshold || timeoutCount >= this.timeoutThreshold;
+        const shouldClose = requestCount >= (this.options as ErrorPercentageCircuitBreakerOptions).requestVolumeThreshold && (failureCount < this.failureThreshold && timeoutCount < this.timeoutThreshold);
+
+        if (this.state === CircuitBreakerState.CLOSED && shouldOpen) {
+            await this.moveToOpenState();
+        } else if (this.state === CircuitBreakerState.OPEN && shouldClose) {
+            await this.moveToClosedState();
         }
     }
 
-    private async resetCounters() {
-        const stateAndStats = await this.getStateAndStatsFromDB();
-        if (stateAndStats) {
-            stateAndStats.stats.failureCount = 0;
-            stateAndStats.stats.timeoutCount = 0;
-            stateAndStats.stats.successCount = 0;
-            await this.saveStateAndStatsToDB(stateAndStats);
-            console.log({ event: 'resetCounters', resourceName: this.options.resourceName });
+    async calculateAggregates(): Promise<CircuitStats> {
+        let aggregatedStats: CircuitStats = { requestCount: 0, failureCount: 0, successCount: 0, timeoutCount: 0 };
+
+        for (const bucket of this.buckets) {
+            aggregatedStats.requestCount += bucket.stats.requestCount;
+            aggregatedStats.failureCount += bucket.stats.failureCount;
+            aggregatedStats.successCount += bucket.stats.successCount;
+            aggregatedStats.timeoutCount += bucket.stats.timeoutCount;
         }
+        console.log(`Aggregated Stats: ${JSON.stringify(aggregatedStats)}`);
+        return aggregatedStats;
     }
 
     private async moveToOpenState() {
@@ -354,32 +369,89 @@ class CircuitBreaker extends EventEmitter implements IPolicy {
         const unifiedError = transformError(error);
 
         if (unifiedError.isTimeout) {
-            await this.incrementTimeoutCounter();
+            await this.incrementCounter('timeout');
         } else if (unifiedError.isFailure) {
-            await this.incrementFailureCounter();
+            await this.incrementCounter('failure');
         }
 
         console.error(unifiedError.message);
     }
 
-    private async shouldOpenCircuit() {
-        const stateAndStats = await this.getStateAndStatsFromDB();
-        if (stateAndStats) {
-            const { failureCount, timeoutCount, requestCount } = stateAndStats.stats;
-            return (
-                failureCount >= this.failureThreshold ||
-                timeoutCount >= this.timeoutThreshold
-            );
+    public async execute<T>(fn: (context: IPolicyContext) => PromiseLike<T> | T, signal: AbortSignal = new AbortController().signal): Promise<T> {
+        await this.waitForInitialization();
+
+        if (this.beforeExecute) await this.beforeExecute({ signal });
+
+        try {
+            switch (this.state) {
+                case CircuitBreakerState.OPEN:
+                    console.log('State is OPEN');
+                    if (this.options.pingService) {
+                        console.log('Starting ping service');
+                        this.startPingingService();
+                        throw new Error('Circuit breaker is in OPEN state. Request blocked.');
+                    } else if (this.options.fallbackMethod) {
+                        console.log('Executing fallback after failure');
+                        this.moveToHalfOpenState();
+                        return Promise.resolve(this.options.fallbackMethod());
+                    } else {
+                        this.moveToHalfOpenState();
+                        throw new Error('Circuit breaker is in OPEN state. Request blocked.');
+                    }
+
+                case CircuitBreakerState.HALF_OPEN:
+                    console.log('State is HALF_OPEN');
+                    await this.resetSuccessCounter();
+                    try {
+                        const result = await fn({ signal });
+                        await this.incrementCounter('success');
+                        if (await this.shouldMoveToCloseState()) {
+                            await this.moveToClosedState();
+                        }
+                        return result;
+                    } catch (error: any) {
+                        await this.handleCommandFailure(error);
+                        await this.moveToOpenState();
+                        throw error;
+                    }
+
+                case CircuitBreakerState.CLOSED:
+                default:
+                    console.log('State is CLOSED');
+                    const start = Date.now();
+                    try {
+                        const result = await fn({ signal });
+                        const duration = Date.now() - start;
+                        if (duration > this.slowCallDurationThreshold) {
+                            await this.incrementCounter('timeout');
+                            throw new Error('Request timed out');
+                        } else {
+                            await this.incrementCounter('success');
+                        }
+                        return result;
+                    } catch (error: any) {
+                        await this.handleCommandFailure(error);
+                        if (await this.shouldOpenCircuit()) {
+                            await this.moveToOpenState();
+                        }
+                        throw error;
+                    }
+            }
+        } finally {
+            if (this.afterExecute) await this.afterExecute({ signal });
         }
-        return false;
+    }
+
+    private async shouldOpenCircuit() {
+        const { failureCount, timeoutCount, requestCount } = await this.calculateAggregates();
+        return (
+            failureCount >= this.failureThreshold ||
+            timeoutCount >= this.timeoutThreshold
+        );
     }
 
     private async shouldMoveToCloseState(): Promise<boolean> {
-        const stateAndStats = await this.getStateAndStatsFromDB();
-        if (!stateAndStats) return false;
-
-        const { successCount } = stateAndStats.stats;
-
+        const { successCount } = await this.calculateAggregates();
         return successCount >= this.successThreshold;
     }
 
@@ -433,70 +505,6 @@ class CircuitBreaker extends EventEmitter implements IPolicy {
     public async currentStateFromDB(): Promise<CircuitBreakerState> {
         const stateAndStats = await this.getStateAndStatsFromDB();
         return stateAndStats ? stateAndStats.state : this.state;
-    }
-
-    public async execute<T>(fn: (context: IPolicyContext) => PromiseLike<T> | T, signal: AbortSignal = new AbortController().signal): Promise<T> {
-        await this.waitForInitialization();
-        
-        if (this.beforeExecute) await this.beforeExecute({ signal });
-
-        try {
-            switch (this.state) {
-                case CircuitBreakerState.OPEN:
-                    console.log('State is OPEN');
-                    if (this.options.pingService) {
-                        console.log('Starting ping service');
-                        this.startPingingService();
-                        throw new Error('Circuit breaker is in OPEN state. Request blocked.');
-                    } else if (this.options.fallbackMethod) {
-                        console.log('Executing fallback after failure');
-                        this.moveToHalfOpenState();
-                        return Promise.resolve(this.options.fallbackMethod());
-                    } else {
-                        this.moveToHalfOpenState();
-                        throw new Error('Circuit breaker is in OPEN state. Request blocked.');
-                    }
-
-                case CircuitBreakerState.HALF_OPEN:
-                    console.log('State is HALF_OPEN');
-                    await this.resetSuccessCounter();
-                    try {
-                        const result = await fn({ signal });
-                        await this.incrementSuccessCounter();
-                        if (await this.shouldMoveToCloseState()) {
-                            await this.moveToClosedState();
-                        }
-                        return result;
-                    } catch (error: any) {
-                        await this.handleCommandFailure(error);
-                        await this.moveToOpenState();
-                        throw error;
-                    }
-
-                case CircuitBreakerState.CLOSED:
-                default:
-                    console.log('State is CLOSED');
-                    try {
-                        const result = await fn({ signal });
-                        await this.incrementSuccessCounter();
-                        return result;
-                    } catch (error: any) {
-                        await this.handleCommandFailure(error);
-                        if (await this.shouldOpenCircuit()) {
-                            await this.moveToOpenState();
-                        }
-                        throw error;
-                    }
-            }
-        } finally {
-            if (this.afterExecute) await this.afterExecute({ signal });
-        }
-    }
-    
-    public static create(strategyType: 'error_percentage', options: ErrorPercentageCircuitBreakerOptions): CircuitBreaker;
-    public static create(strategyType: 'explicit_threshold', options: ExplicitThresholdCircuitBreakerOptions): CircuitBreaker;
-    public static create(strategyType: string, options: CircuitBreakerOptions): CircuitBreaker {
-        return new CircuitBreaker(options);
     }
 }
 

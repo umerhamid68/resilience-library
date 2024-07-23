@@ -144,8 +144,8 @@ const telemetryAdapter = new DefaultTelemetryAdapter();
 
 const tokenBucketOptions: TokenBucketOptions = {
     type: 'token_bucket',
-    maxTokens: 10,
-    key: 'api/endpoint'
+    key: 'api/endpoint',
+    maxTokens: 10
 };
 
 const rateLimiter = RateLimiter.create(tokenBucketOptions);

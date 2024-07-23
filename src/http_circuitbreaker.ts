@@ -2,7 +2,7 @@ import { CircuitBreakerFactory } from './circuitBreaker/CircuitBreaker';
 import {ErrorPercentageCircuitBreakerOptions} from './circuitBreaker/CircuitBreakerOptions';
 import axios from 'axios';
 
-// Define circuit breaker options
+//circuit breaker options
 const errorPercentageOptions: ErrorPercentageCircuitBreakerOptions = {
     resourceName: 'ResourceService',
     rollingWindowSize: 10000,
@@ -11,15 +11,14 @@ const errorPercentageOptions: ErrorPercentageCircuitBreakerOptions = {
     sleepWindow: 3000,
     fallbackMethod: () => 'Fallback response',
     pingService: async () => {
-        const isServiceOperational = Math.random() < 0.8; // 80% chance of service being operational
+        const isServiceOperational = Math.random() < 0.8; //80% chance of service being operational
         return isServiceOperational;
     }
 };
+const circuitBreaker = CircuitBreakerFactory.create(errorPercentageOptions
 
-// Create circuit breaker instance
-const circuitBreaker = CircuitBreakerFactory.create(errorPercentageOptions);
+);
 
-// Define the HTTP request function
 async function makeRequest() {
     try {
         await circuitBreaker.execute(async () => {
@@ -32,5 +31,4 @@ async function makeRequest() {
     }
 }
 
-// Make a request
 makeRequest();
