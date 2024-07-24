@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////database abstraction
+/////////////////////
 import { EventEmitter } from 'events';
 import { Database } from '../Database';
 import grpc from '@grpc/grpc-js';
@@ -101,7 +101,6 @@ class CircuitBreaker extends EventEmitter implements IPolicy {
     private timeoutThreshold!: number;
     private successThreshold!: number;
     private slowCallDurationThreshold: number;
-    private buckets: Bucket[] = [];
     private epochSize: number = 1; // 1 second epochs
 
     public beforeExecute?: (context: IPolicyContext) => Promise<void>;
@@ -112,7 +111,7 @@ class CircuitBreaker extends EventEmitter implements IPolicy {
         this.options = options;
         this.slowCallDurationThreshold = options.slowCallDurationThreshold || 60000; // ms
         this.db = Database.getInstance();
-        
+
         this.validateOptions();
         this.calculateThresholds();
 
@@ -148,9 +147,8 @@ class CircuitBreaker extends EventEmitter implements IPolicy {
 
     private async initDb() {
         await this.db.waitForInitialization();
-        await this.resetKeyIfExists(); 
+        await this.resetKeyIfExists();
         await this.loadStateFromDB();
-        this.initializeBuckets();
         setInterval(() => this.rollBuckets(), this.epochSize * 1000);
     }
 
@@ -158,6 +156,10 @@ class CircuitBreaker extends EventEmitter implements IPolicy {
         const value = await this.db.get(this.options.resourceName);
         if (value !== null) {
             await this.db.del(this.options.resourceName);
+        }
+        const bucketKeys = await this.db.keys(`${this.options.resourceName}:`);
+        for (const key of bucketKeys) {
+            await this.db.del(key);
         }
     }
 
@@ -203,20 +205,10 @@ class CircuitBreaker extends EventEmitter implements IPolicy {
         }
     }
 
-    private async initializeBuckets() {
-        const currentTimestamp = Math.floor(Date.now() / 1000);
-        const initialBucket: Bucket = {
-            timestamp: currentTimestamp,
-            stats: { requestCount: 0, failureCount: 0, successCount: 0, timeoutCount: 0 }
-        };
-        this.buckets.push(initialBucket);
-        await this.saveBucket(initialBucket);
-    }
-
     private async rollBuckets() {
         console.log('----------------roll');
         const currentTimestamp = Math.floor(Date.now() / 1000);
-        const lastBucketTimestamp = this.buckets[this.buckets.length - 1].timestamp;
+        const lastBucketTimestamp = await this.getLastBucketTimestamp();
 
         if (currentTimestamp > lastBucketTimestamp) {
             const newBucket: Bucket = {
@@ -224,11 +216,11 @@ class CircuitBreaker extends EventEmitter implements IPolicy {
                 stats: { requestCount: 0, failureCount: 0, successCount: 0, timeoutCount: 0 }
             };
 
-            this.buckets.push(newBucket);
             await this.saveBucket(newBucket);
+            const allBuckets = await this.getAllBuckets();
 
-            if (this.buckets.length > Math.ceil(this.options.rollingWindowSize / this.epochSize)) {
-                const oldBucket = this.buckets.shift();
+            if (allBuckets.length > Math.ceil(this.options.rollingWindowSize / this.epochSize)) {
+                const oldBucket = allBuckets.shift();
                 if (oldBucket) {
                     await this.deleteBucket(oldBucket);
                 }
@@ -250,39 +242,21 @@ class CircuitBreaker extends EventEmitter implements IPolicy {
 
     private async incrementCounter(type: 'failure' | 'timeout' | 'success') {
         const currentTimestamp = Math.floor(Date.now() / 1000);
-        let bucket = this.buckets.find(b => b.timestamp === currentTimestamp);
+        let bucket = await this.getBucket(currentTimestamp);
 
-        if (!bucket) {
-            bucket = {
-                timestamp: currentTimestamp,
-                stats: { requestCount: 0, failureCount: 0, successCount: 0, timeoutCount: 0 }
-            };
-            this.buckets.push(bucket);
-        }
-
+        // Aggregate stats
         bucket.stats[`${type}Count`]++;
         bucket.stats.requestCount++;
+
         await this.saveBucket(bucket);
-
         console.log({ event: type, resourceName: this.options.resourceName });
-    }
-
-    private async checkStateTransition() {
-        const { failureCount, timeoutCount, requestCount } = await this.calculateAggregates();
-        const shouldOpen = failureCount >= this.failureThreshold || timeoutCount >= this.timeoutThreshold;
-        const shouldClose = requestCount >= (this.options as ErrorPercentageCircuitBreakerOptions).requestVolumeThreshold && (failureCount < this.failureThreshold && timeoutCount < this.timeoutThreshold);
-
-        if (this.state === CircuitBreakerState.CLOSED && shouldOpen) {
-            await this.moveToOpenState();
-        } else if (this.state === CircuitBreakerState.OPEN && shouldClose) {
-            await this.moveToClosedState();
-        }
     }
 
     async calculateAggregates(): Promise<CircuitStats> {
         let aggregatedStats: CircuitStats = { requestCount: 0, failureCount: 0, successCount: 0, timeoutCount: 0 };
+        const allBuckets = await this.getAllBuckets();
 
-        for (const bucket of this.buckets) {
+        for (const bucket of allBuckets) {
             aggregatedStats.requestCount += bucket.stats.requestCount;
             aggregatedStats.failureCount += bucket.stats.failureCount;
             aggregatedStats.successCount += bucket.stats.successCount;
@@ -463,6 +437,36 @@ class CircuitBreaker extends EventEmitter implements IPolicy {
         }
     }
 
+    private async getLastBucketTimestamp(): Promise<number> {
+        const keys = await this.db.keys(`${this.options.resourceName}:`);
+        const timestamps = keys.map(key => parseInt(key.split(':')[1])).sort((a, b) => b - a);
+        return timestamps.length > 0 ? timestamps[0] : Math.floor(Date.now() / 1000);
+    }
+
+    private async getAllBuckets(): Promise<Bucket[]> {
+        const keys = await this.db.keys(`${this.options.resourceName}:`);
+        const buckets: Bucket[] = [];
+        for (const key of keys) {
+            const value = await this.db.get(key);
+            if (value) {
+                buckets.push(JSON.parse(value));
+            }
+        }
+        return buckets;
+    }
+
+    private async getBucket(timestamp: number): Promise<Bucket> {
+        const key = `${this.options.resourceName}:${timestamp}`;
+        const value = await this.db.get(key);
+        if (value) {
+            return JSON.parse(value);
+        }
+        return {
+            timestamp,
+            stats: { requestCount: 0, failureCount: 0, successCount: 0, timeoutCount: 0 }
+        };
+    }
+
     public async setFailureThreshold(threshold: number) {
         this.failureThreshold = threshold;
     }
@@ -509,6 +513,3 @@ class CircuitBreaker extends EventEmitter implements IPolicy {
 }
 
 export { CircuitBreaker, CircuitBreakerFactory, CircuitBreakerState, CircuitBreakerOptions };
-
-
-

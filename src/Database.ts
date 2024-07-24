@@ -192,7 +192,6 @@ import { join } from 'path';
 class Database {
     private static instance: Database;
     private db: rocksdb;
-    private dbReady: Promise<void>;
     private isInitialized = false;
 
     private constructor() {
@@ -204,18 +203,14 @@ class Database {
             mkdirSync(dbPath, { recursive: true });
         }
 
-        this.db = new rocksdb(dbPath);
-        this.dbReady = new Promise((resolve, reject) => {
-            this.db.open({ create_if_missing: true }, (err) => {
-                if (err) {
-                    console.log('Failed to open the database: ' + err);
-                    reject('Failed to open the database: ' + err);
-                } else {
-                    console.log('Database opened successfully.');
-                    this.isInitialized = true;
-                    resolve();
-                }
-            });
+        this.db = rocksdb(dbPath);
+        this.db.open({ create_if_missing: true }, (err) => {
+            if (err) {
+                console.log('Failed to open the database: ' + err);
+            } else {
+                console.log('Database opened successfully.');
+                this.isInitialized = true;
+            }
         });
     }
 
@@ -227,7 +222,9 @@ class Database {
     }
 
     public async waitForInitialization() {
-        await this.dbReady;
+        while (!this.isInitialized) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
     }
 
     public get(key: string): Promise<string | null> {
@@ -240,7 +237,7 @@ class Database {
                         reject(err);
                     }
                 } else {
-                    resolve(value ? value.toString() : null);
+                    resolve(value.toString());
                 }
             });
         });
@@ -269,6 +266,42 @@ class Database {
             });
         });
     }
+
+    public keys(prefix: string): Promise<string[]> {
+        return new Promise((resolve, reject) => {
+            const keys: string[] = [];
+            const iterator = this.db.iterator();
+    
+            const iterate = () => {
+                iterator.next((err, key) => {
+                    if (err) {
+                        iterator.end((endErr) => {
+                            if (endErr) {
+                                reject(endErr);
+                            } else {
+                                reject(err);
+                            }
+                        });
+                    } else if (key) {
+                        const keyStr = key.toString();
+                        if (keyStr.startsWith(prefix)) {
+                            keys.push(keyStr);
+                        }
+                        iterate();
+                    } else {
+                        iterator.end((endErr) => {
+                            if (endErr) {
+                                reject(endErr);
+                            } else {
+                                resolve(keys);
+                            }
+                        });
+                    }
+                });
+            };
+            iterate();
+        });
+    }    
 }
 
 export { Database };

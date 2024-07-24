@@ -243,8 +243,10 @@ async function main() {
 
     try {
         console.log('Sending 4 failing requests simultaneously');
-        await testServiceCall(failingServiceCall, 4);
-
+        await testServiceCall(failingServiceCall, 1);
+        await testServiceCall(failingServiceCall, 1);
+        await testServiceCall(failingServiceCall, 1);
+        await testServiceCall(failingServiceCall, 1);
         console.log('Waiting 7 seconds...');
         await new Promise(resolve => setTimeout(resolve, 7000));
 
